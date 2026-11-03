@@ -16,6 +16,7 @@ or dependency. Preserve the notices shipped with each component.
 | GLib, PCRE2, zlib | Private extraction-tool dependencies | Respectively LGPL, BSD-style and zlib terms; bundled package notices |
 | GNU libc and GCC runtime libraries | Private extraction-tool support and compiled runtime support | LGPL/GPL with applicable GCC Runtime Library Exception; bundled notices and common license texts |
 | [pefile](https://github.com/erocarrera/pefile), [Capstone](https://www.capstone-engine.org/) | Workstation analysis/build dependencies | MIT and BSD-style respectively; installed separately |
+| [Pillow](https://python-pillow.org/) | Workstation package screenshot validation | MIT-CMU; installed separately, not shipped on the handheld |
 | PortMaster | Packaging conventions and optional firmware helpers | PortMaster is a separate project; this package does not imply catalogue inclusion or endorsement |
 
 Release archives retain component licenses under `the_rething/licenses/` and

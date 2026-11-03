@@ -99,7 +99,7 @@ def main():
     else:
         include += [ROOT/'build/sdk-include', ROOT/'build/sdk-include/SDL2', Path('/usr/include/SDL2')]
         flags += ['-mcpu=cortex-a53']
-        link += [f'-L{ROOT}/build/target-libs', '-Wl,--allow-shlib-undefined', '-lSDL2', '-lSDL2_ttf', '-lGLESv2']
+        link += [f'-L{ROOT}/build/mali-link', f'-L{ROOT}/build/target-libs', '-Wl,--allow-shlib-undefined', '-lSDL2', '-lSDL2_ttf', '-lGLESv2']
     flags += [f'-I{x}' for x in include]
     # A fixed guest mapping (runtime/win32hle/guest_mem.c) lets the lifter fold
     # the guest base into every memory access as a constant instead of reloading

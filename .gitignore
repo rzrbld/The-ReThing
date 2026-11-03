@@ -167,3 +167,7 @@ CMakeCache.txt
 !/packaging/Dockerfile.cross
 
 !/scripts/generate_optimization_data.py
+
+!/scripts/prepare_mali_link.sh
+!/scripts/fetch_audio_sources.py
+!/scripts/build_distribution.sh

@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ISO = ROOT / 'The_NEW_ISO_UNPROTECTED/the_thing.iso'
+ISO = Path(os.environ.get('THING_ISO', str(ROOT / 'The_NEW_ISO_UNPROTECTED/the_thing.iso'))).resolve()
 ISO_SHA = '1f3ac2916d8185f0e76b811fe24bc15af9412bf4da18f4bf4579ee483683fe61'
 EXE_SHA = '085d1a90b2bd57967e8e911eb1f7c2232fd4b045b7f363c5c4a3056f720abb49'
 
@@ -60,7 +60,7 @@ def main():
     if iso_manifest.exists():
         verify(iso_root, json.loads(iso_manifest.read_text())['files'])
     else:
-        iso_manifest.write_text(json.dumps(dict(iso=str(ISO.relative_to(ROOT)), sha256=ISO_SHA,
+        iso_manifest.write_text(json.dumps(dict(iso=str(ISO), sha256=ISO_SHA,
             size=ISO.stat().st_size, files=inventory(iso_root)), indent=2) + '\n')
     cabinets = {'data1.cab': '304633852a386e4f16410500122750751379073ab74813bfbbe8240835c5b177',
                 'data1.hdr': '0585fae90465a911d9c134672f0b24337d49aa9f86ac4a2af27f4e3e63913b7c',
@@ -70,9 +70,9 @@ def main():
             raise RuntimeError(f'Unexpected base cabinet: {name}')
     payload = build / 'game-data'
     if not payload.exists():
-        tool = build / 'tools/unshield/usr/bin/unshield'
+        tool = Path(shutil.which('unshield')) if os.environ.get('THING_SYSTEM_TOOLS') == '1' else build / 'tools/unshield/usr/bin/unshield'
         run([tool, '-d', payload, 'x', iso_root / 'data1.cab'],
-            evidence / 'new-iso-payload-extract.log', tool.parents[1] / 'lib/x86_64-linux-gnu')
+            evidence / 'new-iso-payload-extract.log', None if os.environ.get('THING_SYSTEM_TOOLS') == '1' else tool.parents[1] / 'lib/x86_64-linux-gnu')
     payload_manifest = evidence / 'payload.json'
     if payload_manifest.exists():
         verify(payload, json.loads(payload_manifest.read_text())['files'])
@@ -100,8 +100,8 @@ def main():
         shutil.copytree(payload / 'US_bin/bin', stage / 'bin')
         for component in ['levels', 'English_data', 'FMV', 'Default_language_resources', 'Global_data']:
             shutil.copytree(payload / component / 'data', stage / 'data', dirs_exist_ok=True)
-        tool = build / 'tools/xdelta/usr/bin/xdelta'
-        library = tool.parents[1] / 'lib/x86_64-linux-gnu'
+        tool = Path(shutil.which('xdelta')) if os.environ.get('THING_SYSTEM_TOOLS') == '1' else build / 'tools/xdelta/usr/bin/xdelta'
+        library = None if os.environ.get('THING_SYSTEM_TOOLS') == '1' else tool.parents[1] / 'lib/x86_64-linux-gnu'
         targets = [('thething.exe', 'bin/thething.exe'), ('english.pak', 'data/english.pak'),
                    ('resources.pak', 'data/resources.pak'), ('mainui.pak', 'data/mainui.pak'),
                    ('level5a.dll', 'data/Levels/level5a.dll'), ('level6.dll', 'data/Levels/level6.dll')]

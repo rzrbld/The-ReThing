@@ -4,6 +4,6 @@ RUN dpkg --add-architecture arm64 && apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross binutils-aarch64-linux-gnu \
       libsdl2-dev:arm64 libsdl2-ttf-dev:arm64 libgles2-mesa-dev:arm64 \
-      ca-certificates python3 && \
+      ca-certificates python3 make gcc pkg-config:amd64 unshield xdelta p7zip-full && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /src

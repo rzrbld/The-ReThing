@@ -15,4 +15,5 @@ docker run --rm --network none --read-only --tmpfs /tmp \
       test -f /libs/$name || cp -L /usr/lib/aarch64-linux-gnu/$name /libs/$name
     done
   '
+bash scripts/prepare_mali_link.sh
 echo "Toolchain prepared. Set CROSS_IMAGE=$image for subsequent builds."

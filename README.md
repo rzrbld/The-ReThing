@@ -48,13 +48,17 @@ For problems, retain `the_rething/log.txt` or `the_rething/tmp/install.log`.
 
 ## Build
 
-The cross-toolchain setup and SDK preparation scripts are included; no Desert
-Storm checkout is required. Start with `bash scripts/prepare_sdk.sh aarch64`.
-See [BUILDING.md](BUILDING.md) for prerequisites and commands. Recompilation
-requires your own original game files and a development PC; the handheld
-installer prepares resources, it does not compile the executable.
-Optimization patch data is generated from your own matching executable and
-translated files; the required hashes and commands are in BUILDING.md.
+Use a Linux development PC and your own supported ISO:
+
+```sh
+JOBS=4 bash scripts/build_distribution.sh /path/to/the_thing.iso "$PWD/dist/the_rething.zip"
+```
+
+See [BUILDING.md](BUILDING.md) for dependencies, exact input hashes and individual
+stages. The script builds the launcher, game and distribution from source; it
+requires no Desert Storm checkout or previous build. Optimization data is generated
+from your own game files. The handheld installer prepares resources, it does not
+compile the executable.
 
 ## License and acknowledgements
 

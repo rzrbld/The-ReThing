@@ -10,6 +10,7 @@ parser.add_argument('--archive',type=Path,default=R/'dist/the_rething.zip')
 args=parser.parse_args()
 with zipfile.ZipFile(args.archive) as z:
  names=z.namelist();top={n.split('/')[0] for n in names}
+ assert not any(Path(n).name.startswith(('libmali.so','libGLESv2.so')) for n in names), 'GPU driver or link-only stub must not be packaged'
  assert top=={'The ReThing.sh','the_rething','port.json','README.md','gameinfo.xml','screenshot.png'}
  for n in ('port.json','README.md','gameinfo.xml','screenshot.png'):
   assert z.read(n)==z.read('the_rething/'+n)
