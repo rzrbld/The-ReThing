@@ -8,7 +8,8 @@ paths=['build/translated-local-regs/thething/functions_0232.c','build/game/host/
 shutil.copy2(p/'probe/audio/native_vorbis_hook.h',b/'hook.h')
 for unit in ('0248','0249','0215','0229'):
  paths += [f'build/translated-local-regs/thething/functions_{unit}.c',f'build/game/host/thething/functions_{unit}.o',f'build/game/host/thething/functions_{unit}.flags']
-patches=json.loads((p/'build/fp-local-top-20261102/patches.json').read_text());units={}
+subprocess.run([sys.executable, str(p/'scripts/generate_optimization_data.py')], check=True)
+patches=json.loads((p/'build/optimization/patches.json').read_text());units={}
 for path in (p/'build/translated-local-regs/thething').glob('functions_*.c'):
  text=path.read_text();selected=[x for x in patches if x['original'] in text]
  if selected:units[path]=selected
@@ -66,7 +67,7 @@ finally:
  for i,n in enumerate(paths):shutil.copy2(backup/str(i),p/n)
 for n,h in manifest.items():assert hashlib.sha256((p/n).read_bytes()).hexdigest()==h,n
 (p/'docs/evidence'/variant).mkdir(parents=True,exist_ok=True)
-(p/'docs/evidence'/variant/'build-manifest.json').write_text(json.dumps({'composition':['83 local x87 top routines','native whole-sound Vorbis','native streaming Vorbis','early ordinary-terrain bounds rejection (default OFF)'],'fp_patches_sha256':hashlib.sha256((p/'build/fp-local-top-20261102/patches.json').read_bytes()).hexdigest(),'restored_files':manifest,'diagnostic_sha256':hashlib.sha256((b/('diagnostic.'+target)).read_bytes()).hexdigest()},indent=2)+'\n')
+(p/'docs/evidence'/variant/'build-manifest.json').write_text(json.dumps({'composition':['83 local x87 top routines','native whole-sound Vorbis','native streaming Vorbis','early ordinary-terrain bounds rejection (default OFF)'],'fp_patches_sha256':hashlib.sha256((p/'build/optimization/patches.json').read_bytes()).hexdigest(),'restored_files':manifest,'diagnostic_sha256':hashlib.sha256((b/('diagnostic.'+target)).read_bytes()).hexdigest()},indent=2)+'\n')
 print('Combined CPU/audio candidate built; normal source/object/archive/executable restored by hash')
 
 shutil.rmtree(backup) # Successful verified restoration: do not retain redundant rollback binaries.

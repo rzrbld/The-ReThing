@@ -53,6 +53,8 @@ Storm checkout is required. Start with `bash scripts/prepare_sdk.sh aarch64`.
 See [BUILDING.md](BUILDING.md) for prerequisites and commands. Recompilation
 requires your own original game files and a development PC; the handheld
 installer prepares resources, it does not compile the executable.
+Optimization patch data is generated from your own matching executable and
+translated files; the required hashes and commands are in BUILDING.md.
 
 ## License and acknowledgements
 

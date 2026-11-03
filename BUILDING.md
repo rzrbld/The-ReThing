@@ -77,13 +77,51 @@ implemented. Reaching gameplay still requires functional testing.
 The render-worker option compiles that capability; the production launcher
 selects SINGLE by default.
 
-These commands build the base port. The current review release also includes
-the selected local-x87-top/native-audio/early-queue changes assembled by
-`scripts/build_optimized_game.py`. That historical builder depends
-on locally generated selection/patch data and retained objects. Exact recreation
-of that optimized executable from a fresh checkout is not yet a one-command
-workflow. The release executable should not be described as a clean rebuild of
-the base commands above. Generated original-game code stays out of Git.
+## Generate the production optimization data
+
+Required input is the original PC release with the ISO layout described above,
+applied in this order: base install, patch 1.1, patch 1.2, then the supplied
+unprotected 1.2 executable. The hashes are:
+
+| Input | SHA-256 |
+| --- | --- |
+| Supported ISO | `1f3ac2916d8185f0e76b811fe24bc15af9412bf4da18f4bf4579ee483683fe61` |
+| Selected `bin/thething.exe` | `085d1a90b2bd57967e8e911eb1f7c2232fd4b045b7f363c5c4a3056f720abb49` |
+
+A matching version label alone is insufficient. Preparation checks these exact
+hashes. Other executables require a separately reviewed translation and patch
+selection; do not change the expected hashes just to bypass verification.
+
+After completing translation and the **base AArch64 build above**, run:
+
+```sh
+python3 scripts/generate_optimization_data.py
+python3 scripts/build_optimized_game.py --target=aarch64
+bash scripts/strip_optimized_game.sh
+```
+
+The generator reads your `build/active/bin/thething.exe` and
+`build/translated-local-regs/thething/functions_*.c`. It creates
+`build/optimization/patches.json` locally. The public
+`config/optimization-functions.json` contains only the 83 selected function
+addresses and expected before/after SHA-256 hashes. The transformation algorithm
+is in the generator; no profiling capture or private patch file is required.
+Both the original translated bodies and generated replacements must match.
+All generated game code and patch data remain ignored by Git.
+
+The optimized builder also invokes the generator automatically. It temporarily
+applies those patches, native Vorbis hooks and early terrain queue bounds changes,
+compiles, then restores the base build files. It requires the **base build for
+the same target** because it backs up and restores its objects and executable.
+The stripped result is:
+
+```text
+build/early-queue-combined-aarch64-20261103/thething-queue-bounds.aarch64
+```
+
+The date in this directory name is retained for script compatibility. This is
+built from your own files; it is not a downloaded executable. A different GCC or
+SDK version may change the final binary hash even when source checks pass.
 
 Verify the resulting ELF and imports:
 
@@ -124,7 +162,8 @@ Those source archives are separate Xiph.Org dependencies, not game files.
 Once the game, launcher, audio library and installer tools are built:
 
 ```sh
-python3 scripts/package_portmaster.py --game build/game/thething.aarch64
+python3 scripts/package_portmaster.py \
+  --game build/early-queue-combined-aarch64-20261103/thething-queue-bounds.aarch64
 ```
 
 This directly assembles `dist/the_rething.zip` and its SHA-256 file from the

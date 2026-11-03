@@ -165,3 +165,5 @@ CMakeCache.txt
 
 !/scripts/prepare_cross.sh
 !/packaging/Dockerfile.cross
+
+!/scripts/generate_optimization_data.py
