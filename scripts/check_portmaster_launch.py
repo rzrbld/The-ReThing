@@ -10,8 +10,8 @@ get_controls() { echo controls >> "$PM_TEST_LOG"; sdl_controllerconfig=testmappi
 pm_platform_helper() { echo "helper:$(basename "$1")" >> "$PM_TEST_LOG"; }
 pm_finish() { echo finish >> "$PM_TEST_LOG"; }
 ''')
- for name in ('The ReThing.sh','The Thing.sh'):shutil.copy2(ROOT/'packaging'/name,ports/name)
- shutil.copy2(ROOT/'packaging/The Thing.sh',game/'run-game.sh')
+ for name in ('The ReThing.sh','run-game.sh'):shutil.copy2(ROOT/'packaging'/name,ports/name)
+ shutil.copy2(ROOT/'packaging/run-game.sh',game/'run-game.sh')
  shutil.copy2(ROOT/'packaging/the-thing-env.sh',game/'the-thing-env.sh')
  (game/'muos-session.sh').write_text('thing_muos_suspend() { echo suspend >> "$PM_TEST_LOG"; }; thing_muos_resume() { echo resume >> "$PM_TEST_LOG"; }\n')
  (game/'cpu-session.sh').write_text('thing_cpu_begin() { echo cpu_begin >> "$PM_TEST_LOG"; }; thing_cpu_restore() { echo cpu_restore >> "$PM_TEST_LOG"; }\n')
@@ -23,8 +23,8 @@ if [[ "$PM_TEST_MODE" = game ]]; then exec bash "$2"; fi
 exit 0
 ''');launcher.chmod(0o755)
  shortcuts=base/'SD card/Roms/PORTS';shortcuts.mkdir(parents=True)
- for name in ('The ReThing.sh','The Thing.sh'):shutil.copy2(ROOT/'packaging'/name,shortcuts/name)
- cases=[(location,mode,script,expected) for location in (ports,shortcuts) for mode,script,expected in [('cancel','The ReThing.sh',0),('game','The ReThing.sh',7),('direct','The Thing.sh',7)]]
+ for name in ('The ReThing.sh','run-game.sh'):shutil.copy2(ROOT/'packaging'/name,shortcuts/name)
+ cases=[(location,mode,script,expected) for location in (ports,shortcuts) for mode,script,expected in [('cancel','The ReThing.sh',0),('game','The ReThing.sh',7),('direct','run-game.sh',7)]]
  for location,mode,script,expected in cases:
   log=base/(location.name+'-'+mode+'.log')
   env={k:v for k,v in os.environ.items() if not k.startswith(('THING_','DS_','PM_'))}

@@ -3,12 +3,10 @@
 import hashlib,json,pathlib,shutil,subprocess,sys,os
 p=pathlib.Path(__file__).resolve().parents[1]
 target='aarch64' if '--target=aarch64' in sys.argv else 'host'
-variant='game-work-counts-'+target+'-20261103';b=p/'build'/variant;backup=b/'backup';backup.mkdir(parents=True,exist_ok=True)
+variant='early-queue-combined-'+target+'-20261103';b=p/'build'/variant;backup=b/'backup';backup.mkdir(parents=True,exist_ok=True)
 paths=['build/translated-local-regs/thething/functions_0232.c','build/game/host/thething/functions_0232.o','build/game/host/thething/functions_0232.flags','build/game/host/thething/lifted.a','build/game/thething.host','build/game/thething.host.sha256']
 shutil.copy2(p/'probe/audio/native_vorbis_hook.h',b/'hook.h')
-assert target=='host','Host diagnostic only'
-subprocess.run(['cc','-O2','-g','-c',str(p/'probe/game_work/counts.c'),'-o',str(b/'counts.o')],check=True)
-for unit in ('0248','0249','0215','0229','0213','0194','0204','0165','0169'):
+for unit in ('0248','0249','0215','0229'):
  paths += [f'build/translated-local-regs/thething/functions_{unit}.c',f'build/game/host/thething/functions_{unit}.o',f'build/game/host/thething/functions_{unit}.flags']
 patches=json.loads((p/'build/fp-local-top-20261102/patches.json').read_text());units={}
 for path in (p/'build/translated-local-regs/thething').glob('functions_*.c'):
@@ -58,9 +56,8 @@ try:
    assert text.count(marker)==1
    text=text.replace(marker,marker+'\n    if(thing_native_stream_dispatch(0x'+address+'u))return;',1)
   source.write_text(text)
- subprocess.run(['python3','scripts/stage_early_queue_bounds_20261103.py'],cwd=p,check=True)
- subprocess.run(['python3','scripts/stage_game_work_counts_20261103.py'],cwd=p,check=True)
- command=['python3','-u','scripts/build_game.py','--target',target,'--allow-traps','--local-regs','--translated-opt=-O2','--render-thread','--jobs','4','--extra-object',str(b/'counts.o')]
+ subprocess.run(['python3','scripts/stage_queue_bounds.py'],cwd=p,check=True)
+ command=['python3','-u','scripts/build_game.py','--target',target,'--allow-traps','--local-regs','--translated-opt=-O2','--render-thread','--jobs','4']
  if target=='aarch64':command=['docker','run','--rm','--network','none','--read-only','--tmpfs','/tmp','--user',f'{os.getuid()}:{os.getgid()}','-v',f'{p}:/src:ro','-v',f'{p}/build/game:/src/build/game:rw','--workdir','/src','sha256:5c811c6c025a934595e16a49bd9c8554eb7c7b33cfdd4d2fcc01672fd6f85e49',*command]
  with (b/'build.log').open('w') as log:subprocess.run(command,cwd=p,stdout=log,stderr=subprocess.STDOUT,check=True)
  shutil.copy2(p/'build/game'/('thething.'+target),b/('diagnostic.'+target))
@@ -69,7 +66,7 @@ finally:
  for i,n in enumerate(paths):shutil.copy2(backup/str(i),p/n)
 for n,h in manifest.items():assert hashlib.sha256((p/n).read_bytes()).hexdigest()==h,n
 (p/'docs/evidence'/variant).mkdir(parents=True,exist_ok=True)
-(p/'docs/evidence'/variant/'build-manifest.json').write_text(json.dumps({'composition':['83 local x87 top routines','native whole-sound Vorbis','native streaming Vorbis','early ordinary-terrain bounds rejection (default OFF)','original game color/spatial/simulation work counters'],'fp_patches_sha256':hashlib.sha256((p/'build/fp-local-top-20261102/patches.json').read_bytes()).hexdigest(),'restored_files':manifest,'diagnostic_sha256':hashlib.sha256((b/('diagnostic.'+target)).read_bytes()).hexdigest()},indent=2)+'\n')
+(p/'docs/evidence'/variant/'build-manifest.json').write_text(json.dumps({'composition':['83 local x87 top routines','native whole-sound Vorbis','native streaming Vorbis','early ordinary-terrain bounds rejection (default OFF)'],'fp_patches_sha256':hashlib.sha256((p/'build/fp-local-top-20261102/patches.json').read_bytes()).hexdigest(),'restored_files':manifest,'diagnostic_sha256':hashlib.sha256((b/('diagnostic.'+target)).read_bytes()).hexdigest()},indent=2)+'\n')
 print('Combined CPU/audio candidate built; normal source/object/archive/executable restored by hash')
 
 shutil.rmtree(backup) # Successful verified restoration: do not retain redundant rollback binaries.

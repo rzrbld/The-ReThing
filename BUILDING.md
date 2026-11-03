@@ -72,7 +72,7 @@ selects SINGLE by default.
 
 These commands build the base port. The current review release also includes
 the selected local-x87-top/native-audio/early-queue changes assembled by
-`scripts/build_early_queue_combined_20261103.py`. That historical builder depends
+`scripts/build_optimized_game.py`. That historical builder depends
 on locally generated selection/patch data and retained objects. Exact recreation
 of that optimized executable from a fresh checkout is not yet a one-command
 workflow. The release executable should not be described as a clean rebuild of

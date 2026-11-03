@@ -3,7 +3,14 @@
 import hashlib,json,os,shutil,subprocess,tempfile,sys,fcntl,time,signal
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(R/'scripts'));from install_game import existing_path
+def existing_path(root, relative):
+    path = Path(root)
+    for part in Path(relative).parts:
+        matches = [p for p in path.iterdir() if p.name.casefold() == part.casefold()] if path.is_dir() else []
+        if len(matches) != 1:
+            raise RuntimeError('Missing or ambiguous fixture: ' + relative)
+        path = matches[0]
+    return path
 exe=R/'build/launcher/thething-launcher.host'
 command=[str(exe)]
 if '--arm' in sys.argv:

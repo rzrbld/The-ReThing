@@ -9,7 +9,7 @@ with tempfile.TemporaryDirectory(prefix='rething-git-audit-') as t:
  entries=subprocess.check_output(command+['ls-files','--others','--exclude-standard','-z'],cwd=R).decode().split('\0')
  entries=[n for n in entries if n]
  assert all(n in entries for n in ('.gitignore','README.md','BUILDING.md','LICENSE','THIRD_PARTY.md','launcher/native_setup.cpp','packaging/portmaster/screenshot.png'))
- forbidden=['build/active/bin/thething.exe','dist/the_rething.zip','The_NEW_ISO_UNPROTECTED/the_thing.iso','docs/evidence/translation-summary.json','docs/analysis/disassembly.md','.agents/state.json','.codex/config.toml','.aws/credentials','HANDOFF_PERFORMANCE_2026-11-01.md','scripts/test_original.exe','runtime/test_original.dll','config/Slot1.sav']
+ forbidden=['build/active/bin/thething.exe','dist/the_rething.zip','The_NEW_ISO_UNPROTECTED/the_thing.iso','docs/evidence/translation-summary.json','docs/analysis/disassembly.md','.agents/state.json','.codex/config.toml','.aws/credentials','HANDOFF_PERFORMANCE_2026-11-01.md','scripts/test_original.exe','runtime/test_original.dll','config/Slot1.sav','scripts/new-experiment.py','packaging/The Thing GPU.sh']
  for n in forbidden:
   p=subprocess.run(command+['check-ignore','-q','--',n],cwd=R)
   assert p.returncode==0,'Not ignored: '+n

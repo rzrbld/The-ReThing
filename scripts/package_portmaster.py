@@ -7,13 +7,14 @@ sha=lambda b:hashlib.sha256(b).hexdigest()
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--game',type=Path,default=R/'build/game/thething.aarch64')
 parser.add_argument('--audio',type=Path,default=R/'build/native-vorbis-arm/probe.aarch64.so')
+parser.add_argument('--output',type=Path,default=R/'dist/the_rething.zip')
 args=parser.parse_args()
 files={}
 def add(name,path): files[name]=Path(path).read_bytes()
 add('The ReThing.sh',R/'packaging/The ReThing.sh')
 for name in ('the-thing-env.sh','cpu-session.sh','muos-session.sh'):
  add('the-thing/'+name,R/'packaging'/name)
-add('the-thing/run-game.sh',R/'packaging/The Thing.sh')
+add('the-thing/run-game.sh',R/'packaging/run-game.sh')
 add('the-thing/thething.aarch64',args.game)
 add('the-thing/libthing-audio.aarch64.so',args.audio)
 add('the-thing/controller-buttons.cfg',R/'config/controller-buttons.cfg')
@@ -83,8 +84,8 @@ for n,b in files.items():
  if n.endswith('.sh'):subprocess.run(['bash','-n'],input=b,check=True)
  assert not n.startswith(('ports/','Roms/')) and not n.endswith(('.iso','.sav','.py'))
 files['the_rething/MANIFEST.json']=json.dumps({'format':'manual PortMaster-compatible install archive','extract_into':'ports','files':{n:{'size':len(b),'sha256':sha(b)} for n,b in sorted(files.items())}},indent=2).encode()
-out=R/'dist/the_rething.zip'
-out.parent.mkdir(exist_ok=True)
+out=args.output
+out.parent.mkdir(parents=True,exist_ok=True)
 with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
  for n,b in sorted(files.items()):
   i=zipfile.ZipInfo(n,(2026,11,3,0,0,0));i.create_system=3

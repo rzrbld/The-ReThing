@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Validate the installable ZIP, not repository submission policy."""
-import hashlib,io,json,os,subprocess,sys,tempfile,zipfile
+import argparse,hashlib,io,json,os,subprocess,sys,tempfile,zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from PIL import Image
 R=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(R/'build/portmaster-upstream/libs'))
-import util
-with zipfile.ZipFile(R/'dist/the_rething.zip') as z:
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--archive',type=Path,default=R/'dist/the_rething.zip')
+args=parser.parse_args()
+with zipfile.ZipFile(args.archive) as z:
  names=z.namelist();top={n.split('/')[0] for n in names}
  assert top=={'The ReThing.sh','the_rething','port.json','README.md','gameinfo.xml','screenshot.png'}
  for n in ('port.json','README.md','gameinfo.xml','screenshot.png'):
@@ -16,8 +17,10 @@ with zipfile.ZipFile(R/'dist/the_rething.zip') as z:
  assert not any('Measure' in n or 'sample_device' in n for n in names)
  assert b'THING_PERF_PROBE:-0' in z.read('the_rething/the-thing-env.sh')
  meta=json.loads(z.read('the_rething/port.json'))
- normalized=util.port_info_load(json.dumps(meta),'the_rething.zip')
- assert normalized and not util.MESSAGES,util.MESSAGES
+ assert meta['version']==4 and meta['name']=='the_rething.zip'
+ assert isinstance(meta['items'],list) and isinstance(meta['items_opt'],list)
+ assert meta['attr']['title']=='The ReThing' and isinstance(meta['attr']['porter'],list)
+ assert isinstance(meta['attr']['genres'],list) and isinstance(meta['attr']['exp'],bool)
  assert set(meta['items'])=={'The ReThing.sh','the_rething/'}
  assert meta['attr']['arch']==['aarch64'] and meta['attr']['runtime']==[] and not meta['attr']['rtr']
  for game in ET.fromstring(z.read('the_rething/gameinfo.xml')).findall('game'):
@@ -31,7 +34,7 @@ with zipfile.ZipFile(R/'dist/the_rething.zip') as z:
   if n.endswith('.sh'):subprocess.run(['bash','-n'],input=z.read(n),check=True);assert b'\r\n' not in z.read(n)
  for n in ('thething.aarch64','thething-launcher','libs.aarch64/libthing-audio.aarch64.so'):
   b=z.read('the_rething/'+n);assert b[:6]==b'\x7fELF\x02\x01' and int.from_bytes(b[18:20],'little')==183
- print('PASS layout, official metadata parser, XML paths, screenshot, manifest, ELF architecture, no user data/Python')
+ print('PASS layout, PortMaster metadata, XML paths, screenshot, manifest, ELF architecture, no user data/Python')
  with tempfile.TemporaryDirectory(prefix='thing-package-',dir=R/'build') as temp:
   base=Path(temp);ports=base/'SD card/ports';game=ports/'the_rething';pm=base/'PortMaster';pm.mkdir(parents=True)
   # Test actual packaged scripts with fake firmware/processes; never run services.
