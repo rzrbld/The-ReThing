@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gameList>
+  <game>
+    <path>./The ReThing.sh</path>
+    <name>The ReThing</name>
+    <desc>Experimental ARM64 port of The Thing. Requires user-owned original game files. H700 with proprietary Mali GLES; performance remains under development.</desc>
+    <developer>Computer Artworks</developer>
+    <genre>Action / Adventure</genre>
+    <players>1</players>
+    <image>./the_rething/screenshot.png</image>
+  </game>
+</gameList>

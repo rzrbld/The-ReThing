@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "registry_path": "HKEY_CURRENT_USER\\SOFTWARE\\Computer Artworks\\The Thing\\1.0",
+  "status": "Candidate; visual readability and gameplay performance require runtime validation",
+  "description": "Existing game graphics keys only. Conservative texture reduction because a UI/font exemption has not been established. Lighting, entities, terrain, game timing and difficulty remain unchanged.",
+  "settings": {
+    "TextureLODBias": "-1",
+    "MaxTextureSize": "512",
+    "DisableAutoTextureLOD": "1",
+    "AutoTextureLODBias": "0",
+    "AutoTextureLODFlags": "0",
+    "RenderShadows": "0",
+    "DisableShadows": "1",
+    "NumEntityShadows": "1",
+    "NumPlayerShadows": "1",
+    "RenderEffects": "0",
+    "RenderDecals": "0",
+    "EnableAntiAliasing": "0"
+  },
+  "limitations": [
+    "Keep both shadow counts at one: zero skips creation but the original engine later dereferences a missing shadow object. RenderShadows/DisableShadows control visible shadow rendering separately.",
+    "TextureLODBias and MaxTextureSize apply in the common texture loader; no world-only/UI-font exemption has been established.",
+    "This is not an observed built-in Low menu preset or a proven absolute minimum.",
+    "Effects disabled may reduce visibility of particles/flames while their gameplay behavior remains active.",
+    "No resolution, entities, terrain, dynamic-light limit, AI, difficulty or timing settings are changed."
+  ]
+}

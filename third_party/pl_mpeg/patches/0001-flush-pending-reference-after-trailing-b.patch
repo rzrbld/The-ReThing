@@ -1,0 +1,14 @@
+--- a/pl_mpeg.h
++++ b/pl_mpeg.h
+@@ -2868,10 +2868,7 @@
+ 				if (
+ 					self->has_reference_frame &&
+ 					!self->assume_no_b_frames &&
+-					plm_buffer_has_ended(self->buffer) && (
+-						self->picture_type == PLM_VIDEO_PICTURE_TYPE_INTRA ||
+-						self->picture_type == PLM_VIDEO_PICTURE_TYPE_PREDICTIVE
+-					)
++					plm_buffer_has_ended(self->buffer)
+ 				) {
+ 					self->has_reference_frame = FALSE;
+ 					frame = &self->frame_backward;

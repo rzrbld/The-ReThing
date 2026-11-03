@@ -1,0 +1,80 @@
+[
+  {
+    "url": "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.36-9%2bdeb12u14_arm64.deb",
+    "file": "libc6_2.36-9+deb12u14_arm64.deb",
+    "size": 2324660,
+    "sha256": "01f4330719fd4f65580e16ea5a0527f372fca750e8f588d26deaf09f2d3b1cf4"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/g/gcc-12/libgcc-s1_12.2.0-14%2bdeb12u1_arm64.deb",
+    "file": "libgcc-s1_12.2.0-14+deb12u1_arm64.deb",
+    "size": 34816,
+    "sha256": "576926b283613db80168ddf76380a3bd877602778cf0d226caa7bfbfa71eacf3"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/g/glib2.0/libglib2.0-0_2.74.6-2%2bdeb12u9_arm64.deb",
+    "file": "libglib2.0-0_2.74.6-2+deb12u9_arm64.deb",
+    "size": 1315904,
+    "sha256": "61d92fffada7e27fc0ed9d23e047b45bca3b2e3bfe1a918f4ec16559282859f4"
+  },
+  {
+    "url": "https://deb.debian.org/debian-security/pool/updates/main/p/pcre2/libpcre2-8-0_10.42-1%2bdeb12u2_arm64.deb",
+    "file": "libpcre2-8-0_10.42-1+deb12u2_arm64.deb",
+    "size": 230704,
+    "sha256": "8498d2c0bd6747dfc2fc6eec62774a86967079555f7043d5a7b78ee4efbbc0fb"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/g/gcc-12/libstdc%2b%2b6_12.2.0-14%2bdeb12u1_arm64.deb",
+    "file": "libstdc++6_12.2.0-14+deb12u1_arm64.deb",
+    "size": 556608,
+    "sha256": "26e138c677a985775331373828a6c286c551ff397cb735d00e2383cb273d1cb2"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/u/unshield/libunshield0_1.4.2-1_arm64.deb",
+    "file": "libunshield0_1.4.2-1_arm64.deb",
+    "size": 19404,
+    "sha256": "c96e88796b2b1eef10598ac33b45e8cb5159f3b974c9e2e3e0ddf54f638de7d5"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/x/xdelta/libxdelta2_1.1.3-10.4_arm64.deb",
+    "file": "libxdelta2_1.1.3-10.4_arm64.deb",
+    "size": 47408,
+    "sha256": "a169c0a8c97c9573d8e4f6f6d782b773bbeda3f9046cb9b86331db9db1a67ac3"
+  },
+  {
+    "url": "https://deb.debian.org/debian-security/pool/updates/main/p/p7zip/p7zip_16.02%2breally26.02%2bdfsg-0%2bdeb12u1_amd64.deb",
+    "file": "p7zip_16.02+really26.02+dfsg-0+deb12u1_amd64.deb",
+    "size": 452768,
+    "sha256": "04aa58044a6134e1881fe6e6c5cffe368aad1f1323499094d66a6c8ade27a2e6"
+  },
+  {
+    "url": "https://deb.debian.org/debian-security/pool/updates/main/p/p7zip/p7zip-full_16.02%2breally26.02%2bdfsg-0%2bdeb12u1_arm64.deb",
+    "file": "p7zip-full_16.02+really26.02+dfsg-0+deb12u1_arm64.deb",
+    "size": 1284440,
+    "sha256": "53a5d1c3b07bad74607c2fe18ff652bfb176182d03506b8af01ad9b253378501"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/u/unshield/unshield_1.4.2-1_arm64.deb",
+    "file": "unshield_1.4.2-1_arm64.deb",
+    "size": 12224,
+    "sha256": "52a7ee92e670d28411bd85753de799449cb25ce8953d0a02e46a292571d36af1"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/x/xdelta/xdelta_1.1.3-10.4_arm64.deb",
+    "file": "xdelta_1.1.3-10.4_arm64.deb",
+    "size": 27440,
+    "sha256": "f6758292645cfc05f7ed824a5c1ced899c9e71adf27bf9c4968544b3c888b6bc"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/z/zlib/zlib1g_1.2.13.dfsg-1_arm64.deb",
+    "file": "zlib1g_1%3a1.2.13.dfsg-1_arm64.deb",
+    "size": 82744,
+    "sha256": "52b8b8a145bbe1956bba82034f77022cbef0c3d0885c9e32d9817a7932fe1913"
+  },
+  {
+    "url": "https://deb.debian.org/debian/pool/main/g/gcc-12/gcc-12-base_12.2.0-14%2bdeb12u1_arm64.deb",
+    "file": "gcc-12-base_12.2.0-14+deb12u1_arm64.deb",
+    "size": 37624,
+    "sha256": "674cf6cba6d432bd200c45fe866c1652c7a53523cc2e7a613e05bc4abf7b5440"
+  }
+]
