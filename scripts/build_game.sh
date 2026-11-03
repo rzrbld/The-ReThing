@@ -32,7 +32,7 @@ if [[ "$target" == host ]]; then
   exec python3 -u scripts/build_game.py --target host "$@"
 elif [[ "$target" == aarch64 ]]; then
   mkdir -p build/game
-  image=${CROSS_IMAGE:-sha256:5c811c6c025a934595e16a49bd9c8554eb7c7b33cfdd4d2fcc01672fd6f85e49}
+  image=${CROSS_IMAGE:-rething-cross:bookworm}
   exec docker run --rm --network none --read-only --tmpfs /tmp \
     --user "$(id -u):$(id -g)" -v "$PWD:/src:ro" -v "$PWD/build/game:/src/build/game:rw" \
     --workdir /src "$image" python3 -u scripts/build_game.py --target aarch64 "$@"

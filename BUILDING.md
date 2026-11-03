@@ -13,24 +13,33 @@ small parallel job count initially.
 You must supply the supported original game ISO listed in README.md. No game
 executable, resources, generated translation or proprietary SDK is checked in.
 
-The existing ARM build expects:
+## ARM toolchain and SDK
 
-- An AArch64 GCC/G++ cross-compiler container with Python 3. Set `CROSS_IMAGE`
-  to its Docker image name. The retained reference image is local, identified
-  by `sha256:5c811c6c025a934595e16a49bd9c8554eb7c7b33cfdd4d2fcc01672fd6f85e49`;
-  this is not a publicly downloadable image name.
-- Target SDK headers in `build/sdk-include/` and linker libraries in
-  `build/target-libs/`: SDL2, SDL2_ttf, GLES and their required target headers.
-  Use libraries compatible with your firmware. Do not substitute x86 libraries.
-  `scripts/prepare_sdk.sh aarch64` can copy an existing compatible SDK by setting
-  `DESERT_STORM_SDK` to its build directory. It does not download that SDK.
-- The pinned host package versions used by `scripts/prepare.sh` and
-  `scripts/prepare_sdk.sh host`. Those scripts use Debian/Ubuntu package tools;
-  their pinned versions must be available from your configured repositories.
+The required cross-toolchain setup is included in this repository, adapted from
+Desert Storm. No Desert Storm checkout or `DESERT_STORM_SDK` variable is needed.
 
-A completely self-contained, clean-machine SDK bootstrap is not yet provided.
-Do not interpret the commands below as a promise of an exact release rebuild
-without these prerequisites.
+```sh
+bash scripts/prepare_sdk.sh aarch64
+```
+
+This builds `rething-cross:bookworm` from `packaging/Dockerfile.cross` and copies
+AArch64 SDL2/SDL2_ttf headers and SDL2/SDL2_ttf/GLES linker libraries into
+`build/sdk-include/` and `build/target-libs/`. It downloads public Debian packages;
+Docker and network access are required for setup. The base image is digest-pinned;
+APT package updates mean this is not a bit-for-bit toolchain lock.
+Subsequent compilation uses the local image with networking disabled.
+`CROSS_IMAGE` can override the image name consistently across the build scripts.
+
+Existing target link libraries are preserved by setup. For an H700 firmware
+build, matching firmware libraries may be placed in `build/target-libs/` before
+setup. In particular, the review release linked against the Mali driver through
+`libGLESv2.so` with SONAME `libmali.so.0`. The public Debian SDK instead links to
+`libGLESv2.so.2`; the target firmware must provide that library and its dependencies.
+Inspect `readelf -d` before deployment. GPU drivers are not shipped in source.
+
+Host preparation still uses the pinned Debian/Ubuntu package versions in
+`scripts/prepare.sh` and `scripts/prepare_sdk.sh host`; those versions must be
+available from the workstation's configured repositories.
 
 ## Prepare your game and Python dependencies
 
@@ -44,8 +53,7 @@ mkdir -p The_NEW_ISO_UNPROTECTED
 # Copy your supported ISO to The_NEW_ISO_UNPROTECTED/the_thing.iso
 bash scripts/prepare.sh
 bash scripts/prepare_sdk.sh host
-DESERT_STORM_SDK=/absolute/path/to/compatible/sdk/build \
-  bash scripts/prepare_sdk.sh aarch64
+bash scripts/prepare_sdk.sh aarch64
 ```
 
 Preparation checks the ISO, installs its original files, applies 1.1 then 1.2,
@@ -59,8 +67,7 @@ Generated manifests and analysis outputs go into ignored `docs/evidence/`.
 python3 -u scripts/translate_game.py --all-modules
 bash scripts/build_game.sh host --allow-traps --local-regs \
   --translated-opt=-O2 --render-thread --jobs 4
-CROSS_IMAGE=your-aarch64-compiler-image \
-  bash scripts/build_game.sh aarch64 --allow-traps --local-regs \
+bash scripts/build_game.sh aarch64 --allow-traps --local-regs \
   --translated-opt=-O2 --render-thread --jobs 4
 ```
 
@@ -90,7 +97,7 @@ THING_ROOT="$PWD/build/active" build/game/thething.host --check-imports
 
 ```sh
 bash scripts/build_launcher.sh host
-CROSS_IMAGE=your-aarch64-compiler-image bash scripts/build_launcher.sh aarch64
+bash scripts/build_launcher.sh aarch64
 python3 scripts/prepare_installer_tools.py
 ```
 

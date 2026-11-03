@@ -9,7 +9,7 @@ if [[ ! -f build/tools/$archive ]]; then
 fi
 printf '%s  %s\n' a00c7fdf34c913b799f8d1cc556d3fdd9f9fd695167a17baf86123a9cfaefb22 "build/tools/$archive" | sha256sum -c -
 dpkg-deb -x "build/tools/$archive" build/tools/qemu-user
-image=${CROSS_IMAGE:-sha256:5c811c6c025a934595e16a49bd9c8554eb7c7b33cfdd4d2fcc01672fd6f85e49}
+image=${CROSS_IMAGE:-rething-cross:bookworm}
 docker run --rm --network host -v "$PWD/build/arm64-qemu-sysroot:/out:rw" "$image" sh -c '
  set -e; export DEBIAN_FRONTEND=noninteractive
  apt-get update > /tmp/update.log 2>&1

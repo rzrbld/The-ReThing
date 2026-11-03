@@ -162,3 +162,6 @@ CMakeCache.txt
 !/scripts/stage_x87_ring.py
 !/scripts/strip_optimized_game.sh
 !/scripts/translate_game.py
+
+!/scripts/prepare_cross.sh
+!/packaging/Dockerfile.cross

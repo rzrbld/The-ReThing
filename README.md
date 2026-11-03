@@ -48,6 +48,8 @@ For problems, retain `the_rething/log.txt` or `the_rething/tmp/install.log`.
 
 ## Build
 
+The cross-toolchain setup and SDK preparation scripts are included; no Desert
+Storm checkout is required. Start with `bash scripts/prepare_sdk.sh aarch64`.
 See [BUILDING.md](BUILDING.md) for prerequisites and commands. Recompilation
 requires your own original game files and a development PC; the handheld
 installer prepares resources, it does not compile the executable.

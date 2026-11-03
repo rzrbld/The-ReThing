@@ -15,14 +15,7 @@ host)
   pkg-config --exists sdl2 glesv2
   ;;
 aarch64)
-  if [[ ! -f build/target-libs/libSDL2.so || ! -f build/sdk-include/SDL2/SDL_config.h ]]; then
-    source_sdk=${DESERT_STORM_SDK:-/home/rzrbld/repos/desert_storm/build}
-    test -f "$source_sdk/target-libs/libSDL2.so"
-    test -f "$source_sdk/sdk-include/SDL2/SDL_config.h"
-    mkdir -p build/target-libs build/sdk-include
-    cp -a "$source_sdk/target-libs/." build/target-libs/
-    cp -a "$source_sdk/sdk-include/." build/sdk-include/
-  fi
+  bash scripts/prepare_cross.sh
   ;;
 *) echo 'Usage: prepare_sdk.sh host|aarch64' >&2; exit 2;;
 esac

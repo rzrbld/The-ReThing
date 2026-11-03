@@ -16,3 +16,7 @@ Experiments, benchmark launchers and one-off analysis scripts are not public too
 
 The files in `packaging/` are the main launcher, its internal run-game script,
 and the environment/CPU/frontend helpers actually shipped by the production ZIP.
+
+`prepare_cross.sh` builds the included public cross-compiler image and stages
+SDK headers and link libraries. `prepare_sdk.sh aarch64` invokes it. Existing
+firmware link libraries are preserved.

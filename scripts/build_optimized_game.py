@@ -58,7 +58,7 @@ try:
   source.write_text(text)
  subprocess.run(['python3','scripts/stage_queue_bounds.py'],cwd=p,check=True)
  command=['python3','-u','scripts/build_game.py','--target',target,'--allow-traps','--local-regs','--translated-opt=-O2','--render-thread','--jobs','4']
- if target=='aarch64':command=['docker','run','--rm','--network','none','--read-only','--tmpfs','/tmp','--user',f'{os.getuid()}:{os.getgid()}','-v',f'{p}:/src:ro','-v',f'{p}/build/game:/src/build/game:rw','--workdir','/src','sha256:5c811c6c025a934595e16a49bd9c8554eb7c7b33cfdd4d2fcc01672fd6f85e49',*command]
+ if target=='aarch64':command=['docker','run','--rm','--network','none','--read-only','--tmpfs','/tmp','--user',f'{os.getuid()}:{os.getgid()}','-v',f'{p}:/src:ro','-v',f'{p}/build/game:/src/build/game:rw','--workdir','/src',os.environ.get('CROSS_IMAGE', 'rething-cross:bookworm'),*command]
  with (b/'build.log').open('w') as log:subprocess.run(command,cwd=p,stdout=log,stderr=subprocess.STDOUT,check=True)
  shutil.copy2(p/'build/game'/('thething.'+target),b/('diagnostic.'+target))
 
