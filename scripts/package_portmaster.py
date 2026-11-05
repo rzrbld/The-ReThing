@@ -19,6 +19,7 @@ add('the-thing/thething.aarch64',args.game)
 add('the-thing/libthing-audio.aarch64.so',args.audio)
 add('the-thing/controller-buttons.cfg',R/'config/controller-buttons.cfg')
 add('the-thing/CONTROLS.md',R/'docs/CONTROLS.md')
+add('the-thing/RENDER_OPTIONS.md',R/'docs/RENDER_OPTIONS.md')
 add('the-thing/BUILDING.md',R/'BUILDING.md')
 files['the-thing/PREBUILT-FOR-REVIEW.txt']=b'The prebuilt executable is provided for review. Users must supply their own game files. See README.md and THIRD_PARTY.md for rights and license notices.\n'
 files['the-thing/source/PLACE-YOUR-ISO-HERE.txt']=b'Put your supported original ISO here as the_thing.iso. Existing supported bin/ and data/ are also accepted. See README.md.\n'

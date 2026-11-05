@@ -15,6 +15,7 @@ int ds_rt_start(SDL_Window *,SDL_GLContext);
 int ds_rt_active(void);
 void ds_rt_origin(uint32_t guest,uint32_t frame);
 int ds_rt_sync(void);
+int ds_rt_swap(SDL_Window *window); /* async present when DS_RT_ASYNC_SWAP!=0 */
 int ds_rt_stop(void);
 const DsRtError *ds_rt_error(void);
 /* Blocking native-only job, arg remains live until return. No HLE/register

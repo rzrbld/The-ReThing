@@ -171,3 +171,7 @@ CMakeCache.txt
 !/scripts/prepare_mali_link.sh
 !/scripts/fetch_audio_sources.py
 !/scripts/build_distribution.sh
+
+!/scripts/stage_material_state_reuse.py
+!/scripts/check_material_state_reuse.py
+!/docs/RENDER_OPTIONS.md

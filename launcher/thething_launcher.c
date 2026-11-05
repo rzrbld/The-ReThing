@@ -16,7 +16,15 @@ extern int thing_native_setup(const char *root, int shadow_only);
 
 #define W 640
 #define H 480
-#define KEY_COUNT 6
+#define KEY_COUNT 2            /* page-0 setting rows before RENDER OPTIONS */
+#define OPTIONS_ITEM KEY_COUNT /* page-0 "RENDER OPTIONS" row */
+#define MAX_ITEMS 12
+#define PAGE0_SAVE (KEY_COUNT+1)
+#define PAGE0_CANCEL (KEY_COUNT+2)
+#define PAGE0_COUNT (KEY_COUNT+3)
+#define PAGE1_ITEMS 9          /* All rendering settings */
+#define PAGE1_BACK PAGE1_ITEMS
+#define PAGE1_COUNT (PAGE1_ITEMS+1)
 #define FONT_W 5
 #define FONT_H 7
 
@@ -27,16 +35,42 @@ static const char *counter_values[]={"OFF","ON"};
 static const char *res_values[]={"NATIVE","640X480","512X384 (FAST)"};
 static const char *shadow_values[]={"SIMPLE","ORIGINAL"};
 static const char *thread_values[]={"THREADED","SINGLE"};
+static const char *nav_values[]={"OPEN"};
 
-static Item items[KEY_COUNT]={
+static Item items[MAX_ITEMS]={
     {"FPS CAP",fps_values,3,0,"THING_FPS_LIMIT","fps_limit"},
     {"FPS COUNTER",counter_values,2,0,"THING_FPS_OVERLAY","fps_counter"},
     {"RESOLUTION",res_values,3,1,"","resolution"},
     {"RENDERER",thread_values,2,1,"DS_RENDER_THREAD","render_thread"},
     {"BUFFER CACHE",counter_values,2,0,"THING_GPU_BUFFER_CACHE","buffer_cache"},
     {"SHADOWS",shadow_values,2,0,"THING_SHADOW_QUALITY","shadow_quality"},
+    {"RENDER OPTIONS",nav_values,1,0,"",""},
+    {"ASYNC PRESENT",counter_values,2,1,"DS_RT_ASYNC_SWAP","async_present"},
+    {"ONE UPLOAD",counter_values,2,0,"DS_ONE_UPLOAD","one_upload"},
+    {"RANGED DRAWS",counter_values,2,1,"DS_RANGE_DRAW","ranged_draws"},
+    {"ALPHA ELISION",counter_values,2,1,"DS_ALPHA_ELIDE","alpha_elide"},
+    {"DEPTH INVALIDATE",counter_values,2,1,"DS_INVALIDATE_DEPTH","invalidate_depth"},
 };
-static int selection=0; /* 0..KEY_COUNT-1 items, KEY_COUNT save, KEY_COUNT+1 cancel */
+static const int main_rows[]={0,1,6};
+static const int render_rows[]={3,2,5,4,7,8,9,10,11};
+static int selection=0, page=0;   /* page 0 = main settings, 1 = render options */
+static int active_count(void){return page==0?PAGE0_COUNT:PAGE1_COUNT;}
+/* Row index into items[] for the current page selection, or -1 for SAVE/CANCEL/BACK. */
+static int selected_item(void){
+    if(page==0)return selection<=OPTIONS_ITEM?main_rows[selection]:-1;
+    return selection<PAGE1_ITEMS?render_rows[selection]:-1;
+}
+/* Keep saved preferences when a mode makes an option unavailable. */
+static const char *blocked_reason(int it){
+    int threaded=items[3].index==0;
+    if(it==7&&!threaded)return "REQUIRES THREADED";
+    if((it==9||it==11)&&threaded)return "REQUIRES SINGLE";
+    return NULL;
+}
+static void change_item(int it,int direction){
+    if(it<0||blocked_reason(it))return;
+    items[it].index=(items[it].index+direction+items[it].count)%items[it].count;
+}
 static int chosen_action=-1;
 static const char *config_path;
 static const char *game_launcher;
@@ -124,7 +158,7 @@ static void load_config(void){
     while(fgets(line,sizeof line,f)){
         char *eq=strchr(line,'=');if(!eq)continue;*eq=0;
         char *k=line,*v=eq+1;v[strcspn(v,"\r\n")]=0;
-        for(Item *it=items;it<items+KEY_COUNT;it++)if(!strcmp(k,it->cfg))
+        for(Item *it=items;it<items+MAX_ITEMS;it++)if(it->cfg[0]&&!strcmp(k,it->cfg))
             for(int i=0;i<it->count;i++){
                 char num[16];snprintf(num,sizeof num,"%d",i);
                 int match=0;
@@ -141,8 +175,10 @@ static void load_config(void){
 static int save_config(void){
     FILE *f=fopen(config_path,"w");if(!f)return -1;
     const char *fps[]={"0","60","30"},*ctr[]={"0","1"},*res[]={"native","640x480","512x384"},*thr[]={"1","0"};
-    fprintf(f,"fps_limit=%s\nfps_counter=%s\nresolution=%s\nrender_thread=%s\nbuffer_cache=%d\nshadow_quality=%d\n",
-        fps[items[0].index],ctr[items[1].index],res[items[2].index],thr[items[3].index],items[4].index,items[5].index);
+    fprintf(f,"fps_limit=%s\nfps_counter=%s\nresolution=%s\nrender_thread=%s\nbuffer_cache=%d\nshadow_quality=%d\n"
+              "async_present=%d\none_upload=%d\nranged_draws=%d\nalpha_elide=%d\ninvalidate_depth=%d\n",
+        fps[items[0].index],ctr[items[1].index],res[items[2].index],thr[items[3].index],items[4].index,items[5].index,
+        items[7].index,items[8].index,items[9].index,items[10].index,items[11].index);
     fclose(f);return 0;
 }
 static int launch_game(void){
@@ -155,6 +191,9 @@ static int launch_game(void){
     setenv("DS_RENDER_THREAD",items[3].index==0?"1":"0",1);
     setenv("THING_GPU_BUFFER_CACHE",items[4].index?"1":"0",1);
     setenv("THING_SHADOW_QUALITY",items[5].index?"1":"0",1);
+    /* Renderer options: preserve saved preferences even for blocked rows; the launcher
+     * writes an explicit value so an OFF selection survives. */
+    for(int i=7;i<MAX_ITEMS;i++)setenv(items[i].env,items[i].index?"1":"0",1);
     setenv("THING_LAUNCHER_SKIP_MENU","1",1);
     execl("/bin/bash","/bin/bash",game_launcher,(char*)NULL);
     return -1;
@@ -245,13 +284,15 @@ int main(int argc,char **argv){
         items[3].index=1;   /* SINGLE */
         items[2].index=1;   /* 640X480 */
         if(save_config())return 1;
-        for(Item *it=items;it<items+KEY_COUNT;it++)it->index=0;
+        for(Item *it=items;it<items+MAX_ITEMS;it++)if(it->cfg[0])it->index=0;
         load_config();
         printf("fps=%d counter=%d resolution=%d renderer=%d cache=%d\n",
             items[0].index,items[1].index,items[2].index,items[3].index,items[4].index);
         return 0;
     }
     load_config();
+    /* Diagnostic-only: screenshot the render-options page without input. */
+    if(getenv("THING_LAUNCHER_SHOT_PAGE")&&!strcmp(getenv("THING_LAUNCHER_SHOT_PAGE"),"1")){page=1;selection=0;}
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_EVENTS)){fprintf(stderr,"launcher: SDL_Init: %s\n",SDL_GetError());return 1;}
     uint32_t wflags=getenv("THING_LAUNCHER_WINDOWED")?SDL_WINDOW_SHOWN:(SDL_WINDOW_FULLSCREEN_DESKTOP|SDL_WINDOW_SHOWN);
     SDL_Window *win=SDL_CreateWindow("The ReThing",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,W,H,wflags);
@@ -275,45 +316,74 @@ int main(int argc,char **argv){
             else if(ev.type==SDL_KEYDOWN){
                 int k=ev.key.keysym.sym;
                 if(k==SDLK_ESCAPE)running=0;
-                else if(k==SDLK_UP){selection=(selection+KEY_COUNT+2-1)%(KEY_COUNT+2);}
-                else if(k==SDLK_DOWN){selection=(selection+1)%(KEY_COUNT+2);}
-                else if(k==SDLK_LEFT){if(selection<KEY_COUNT){items[selection].index=(items[selection].index+items[selection].count-1)%items[selection].count;}}
-                else if(k==SDLK_RIGHT){if(selection<KEY_COUNT){items[selection].index=(items[selection].index+1)%items[selection].count;}}
+                else if(k==SDLK_UP){selection=(selection+active_count()-1)%active_count();}
+                else if(k==SDLK_DOWN){selection=(selection+1)%active_count();}
+                else if(k==SDLK_LEFT){int it=selected_item();change_item(it,-1);}
+                else if(k==SDLK_RIGHT){int it=selected_item();change_item(it,1);}
                 else if(k==SDLK_RETURN||k==SDLK_SPACE){
-                    if(selection==KEY_COUNT){if(save_config()==0){chosen_action=1;running=0;}}
-                    else if(selection==KEY_COUNT+1){chosen_action=0;running=0;}
-                    else items[selection].index=(items[selection].index+1)%items[selection].count;
+                    if(page==0){
+                        if(selection==PAGE0_SAVE){if(save_config()==0){chosen_action=1;running=0;}}
+                        else if(selection==PAGE0_CANCEL){chosen_action=0;running=0;}
+                        else if(selection==OPTIONS_ITEM){page=1;selection=0;}
+                        else change_item(selected_item(),1);
+                    }else{
+                        if(selection==PAGE1_BACK){page=0;selection=OPTIONS_ITEM;}
+                        else change_item(selected_item(),1);
+                    }
                 }
             } else if(ev.type==SDL_CONTROLLERBUTTONDOWN){
-                if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_UP)selection=(selection+KEY_COUNT+2-1)%(KEY_COUNT+2);
-                else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_DOWN)selection=(selection+1)%(KEY_COUNT+2);
-                else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_LEFT&&selection<KEY_COUNT)items[selection].index=(items[selection].index+items[selection].count-1)%items[selection].count;
-                else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_RIGHT&&selection<KEY_COUNT)items[selection].index=(items[selection].index+1)%items[selection].count;
+                if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_UP)selection=(selection+active_count()-1)%active_count();
+                else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_DOWN)selection=(selection+1)%active_count();
+                else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_LEFT){int it=selected_item();change_item(it,-1);}
+                else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_DPAD_RIGHT){int it=selected_item();change_item(it,1);}
                 else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_A){
-                    if(selection==KEY_COUNT){if(save_config()==0){chosen_action=1;running=0;}}
-                    else if(selection==KEY_COUNT+1){chosen_action=0;running=0;}
-                    else items[selection].index=(items[selection].index+1)%items[selection].count;
-                } else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_B){chosen_action=0;running=0;}
+                    if(page==0){
+                        if(selection==PAGE0_SAVE){if(save_config()==0){chosen_action=1;running=0;}}
+                        else if(selection==PAGE0_CANCEL){chosen_action=0;running=0;}
+                        else if(selection==OPTIONS_ITEM){page=1;selection=0;}
+                        else change_item(selected_item(),1);
+                    }else{
+                        if(selection==PAGE1_BACK){page=0;selection=OPTIONS_ITEM;}
+                        else change_item(selected_item(),1);
+                    }
+                } else if(ev.cbutton.button==SDL_CONTROLLER_BUTTON_B){
+                    if(page==1){page=0;selection=OPTIONS_ITEM;}else{chosen_action=0;running=0;}
+                }
             } else if(ev.type==SDL_CONTROLLERAXISMOTION){
                 Sint16 v=ev.caxis.value;uint32_t now=SDL_GetTicks();
                 if(now-last_move>180){
                     if(v<-20000||v>20000){
                         int dir=v<0?-1:1;
-                        if(ev.caxis.axis==SDL_CONTROLLER_AXIS_LEFTY)selection=(selection+dir+KEY_COUNT+2)%(KEY_COUNT+2);
-                        else if(ev.caxis.axis==SDL_CONTROLLER_AXIS_LEFTX&&selection<KEY_COUNT)items[selection].index=(items[selection].index+dir+items[selection].count)%items[selection].count;
+                        if(ev.caxis.axis==SDL_CONTROLLER_AXIS_LEFTY)selection=(selection+dir+active_count())%active_count();
+                        else if(ev.caxis.axis==SDL_CONTROLLER_AXIS_LEFTX){int it=selected_item();change_item(it,dir);}
                         last_move=now;
                     }
                 }
             }
         }
+        subtitle=page==0?"SETTINGS":"RENDER OPTIONS";
         draw_frame(ren);
-        SDL_Color normal={150,200,255,255},hot={220,245,255,255},dim={80,140,210,255};
-        for(int i=0;i<KEY_COUNT;i++)draw_row(ren,items[i].label,items[i].values[items[i].index],138+i*32,selection==i,normal,hot);
-        int ay=138+KEY_COUNT*32+14;
-        draw_row(ren,"SAVE & LAUNCH","",ay,selection==KEY_COUNT,hot,hot);
-        draw_row(ren,"CANCEL","",ay+36,selection==KEY_COUNT+1,normal,hot);
+        SDL_Color normal={150,200,255,255},hot={220,245,255,255},dim={80,140,210,255};(void)dim;
+        if(page==0){
+            for(int i=0;i<=OPTIONS_ITEM;i++){
+                int it=main_rows[i];
+                const char *value=i<KEY_COUNT?items[it].values[items[it].index]:"OPEN";
+                draw_row(ren,items[it].label,value,130+i*30,selection==i,normal,hot);
+            }
+            draw_row(ren,"SAVE & LAUNCH","",340,selection==PAGE0_SAVE,hot,hot);
+            draw_row(ren,"CANCEL","",372,selection==PAGE0_CANCEL,normal,hot);
+        }else{
+            for(int i=0;i<PAGE1_ITEMS;i++){
+                int it=render_rows[i];const char *reason=blocked_reason(it);
+                SDL_Color disabled={85,95,110,255};
+                draw_row(ren,items[it].label,reason?"BLOCKED":items[it].values[items[it].index],135+i*25,selection==i,reason?disabled:normal,reason?disabled:hot);
+            }
+            draw_row(ren,"BACK","",135+PAGE1_ITEMS*25,selection==PAGE1_BACK,normal,hot);
+        }
         SDL_Color hint={60,110,180,255};
-        draw_text(ren,"UP/DOWN MOVE  LEFT/RIGHT CHANGE  A SELECT  B CANCEL",(W-text_width("UP/DOWN MOVE  LEFT/RIGHT CHANGE  A SELECT  B CANCEL",1))/2,H-52,1,hint);
+        const char *reason=blocked_reason(selected_item());
+        const char *hint_text=reason?reason:page==0?"UP/DOWN MOVE  LEFT/RIGHT CHANGE  A SELECT  B CANCEL":"UP/DOWN MOVE  LEFT/RIGHT CHANGE  A SELECT  B BACK";
+        draw_text(ren,hint_text,(W-text_width(hint_text,1))/2,H-52,1,hint);
         if(shot_path&&!shot){int ow=W,oh=H;SDL_GetRendererOutputSize(ren,&ow,&oh);SDL_Surface *s=SDL_CreateRGBSurfaceWithFormat(0,ow,oh,32,SDL_PIXELFORMAT_RGBA32);if(s){SDL_RenderReadPixels(ren,NULL,SDL_PIXELFORMAT_RGBA32,s->pixels,s->pitch);SDL_SaveBMP(s,shot_path);SDL_FreeSurface(s);}shot=1;}
         SDL_RenderPresent(ren);if(shot_path&&shot)break;SDL_Delay(16);
     }

@@ -8,7 +8,7 @@ Experiments, benchmark launchers and one-off analysis scripts are not public too
 - **Recompilation:** `translate_game.py`, `build_game.sh`, `build_game.py`, the
   `patch_*`, `stage_*`, `recover_targets.py` and `generate_modules.py` helpers.
 - **Selected production optimizations:** `build_optimized_game.py`,
-  `generate_optimization_data.py`, `stage_queue_bounds.py`,
+  `generate_optimization_data.py`, `stage_queue_bounds.py`, `stage_material_state_reuse.py`,
   `strip_optimized_game.sh`. Generate patch data from your own translated files
   after a base build; see BUILDING.md for exact input hashes and command order.
 - **Launcher/audio/tools:** `build_launcher.sh`, `build_vorbis_arm_codec.sh`,

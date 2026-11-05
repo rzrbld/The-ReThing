@@ -135,7 +135,8 @@ code and stays ignored by Git. The optimized builder invokes the generator too.
 
 The base build for the **same target** must finish first: the optimized builder
 backs up those locally built objects and executable, applies local-x87-top,
-native Vorbis and queue-bounds changes, compiles, and restores the base files.
+native Vorbis, queue-bounds and guarded material-state reuse changes, compiles,
+and restores the base files.
 No earlier release objects or profiling logs are used.
 
 ## Validation and limits
@@ -184,3 +185,8 @@ These results verify the build and startup/install paths. They do not establish
 new H700 gameplay compatibility, sustained performance or 30 FPS. No H700 was used
 for this verification. Different public package/compiler versions may produce a
 different executable hash; this recorded hash is not a build input requirement.
+
+The material-state reuse check requires Unicorn in addition to the normal build
+dependencies. With your supported original executable prepared, run
+`python3 scripts/check_material_state_reuse.py`. It compares the guard against
+the original x86 instructions; no original code is included as a test fixture.

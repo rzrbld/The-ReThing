@@ -72,5 +72,15 @@ export THING_FPS_OVERLAY=${THING_FPS_OVERLAY:-0}
 export DS_RENDER_THREAD=${DS_RENDER_THREAD:-0}
 export THING_GPU_BUFFER_CACHE=${THING_GPU_BUFFER_CACHE:-${DS_GPU_BUFFER_CACHE:-0}}
 
+# Render-options preferences also apply when entering run-game.sh directly.
+# The UI blocks irrelevant controls without erasing their saved preferences.
+if [[ -f "$thing_cfg" ]]; then
+    for pair in async_present:DS_RT_ASYNC_SWAP one_upload:DS_ONE_UPLOAD ranged_draws:DS_RANGE_DRAW alpha_elide:DS_ALPHA_ELIDE invalidate_depth:DS_INVALIDATE_DEPTH; do
+        key=${pair%%:*}; name=${pair#*:}
+        v=$(sed -n "s/^${key}=//p" "$thing_cfg" | head -n1)
+        if [[ "$v" == "0" || "$v" == "1" ]]; then export "$name=${!name:-$v}"; fi
+    done
+fi
+
 # Retired launcher brightness override: ignore legacy config and inherited values.
 unset THING_BRIGHTNESS DS_BRIGHTNESS

@@ -14,6 +14,9 @@ typedef struct {uint32_t bytes,op;uint64_t sequence;uint32_t guest,frame;Execute
 _Static_assert(sizeof(Header)==32,"queue header alignment");
 static struct {
  unsigned char *arena;uint64_t head,next_sequence;_Atomic uint64_t published,consumed,completed;
+ /* Asynchronous present: producer may run ahead by one frame while the GL
+  * thread drains the previous frame and swaps. Counters bound the latency. */
+ _Atomic uint64_t swap_submitted,swap_completed;
  _Atomic int active,stopping,failed;SDL_mutex *mutex;SDL_cond *work,*space;SDL_sem *ready;SDL_Thread *thread;
  SDL_Window *window;SDL_GLContext context;SDL_threadID producer;uint32_t guest,frame;DsRtError error;
 } q;
@@ -86,6 +89,8 @@ static int texture_payload(GLsizei width,GLsizei height,GLenum format,GLenum typ
  size_t row=(size_t)width*unit,stride=(row+proxy_unpack_alignment-1)&~(size_t)(proxy_unpack_alignment-1);
  *bytes=height?(height-1)*stride+row:0;return 0;
 }
+static void publish(void);
+static void swap_job(void *p);
 static void barrier(void *unused){(void)unused;}
 static void error_check(void *unused){(void)unused;}
 typedef struct {GLint alignment,row_length,skip_rows,skip_pixels,buffer,array,element,attrib_buffer[64];uint64_t enabled;int client_seen;} UnpackState;
@@ -141,6 +146,7 @@ static int worker(void *unused){
   if(tail==end&&atomic_load(&q.stopping))break;
   while(tail<end){
    Header *h=(Header*)(q.arena+(tail&(CAPACITY-1)));
+   if(h->execute==swap_job)atomic_fetch_add_explicit(&q.swap_completed,1,memory_order_release);
    if(h->op==OP_DRAW_CHECK){GLenum e=__real_glGetError();unsigned op;memcpy(&op,h+1,sizeof op);if(e)fail(e,h,op<OP_COUNT?op_names[op]:"draw-error-check","driver error observed at explicit deferred post-draw check");}
    else if(h->execute)h->execute(h+1);
    tail+=h->bytes;
@@ -205,7 +211,29 @@ int ds_rt_stop(void){
 }
 typedef struct {SDL_Window *window;} Swap;
 static void swap_job(void *p){Swap *s=p;SDL_ClearError();__real_SDL_GL_SwapWindow(s->window);if(*SDL_GetError())fail(UINT32_MAX,NULL,"SDL_GL_SwapWindow",SDL_GetError());}
-void __wrap_SDL_GL_SwapWindow(SDL_Window *window){if(!proxy_active()||worker_thread){__real_SDL_GL_SwapWindow(window);return;}Swap s={window};ds_rt_call(swap_job,&s);}
+/* Present: enqueue the swap and return as soon as at most two frames are in
+ * flight. The old path waited for the whole queued frame and the swap, which
+ * kept the producer idle while the driver worked (Halo-G31 port: never make
+ * the CPU wait for the GPU in a frame). DS_RT_ASYNC_SWAP=0 restores the old
+ * synchronous swap for A/B. */
+int ds_rt_swap(SDL_Window *window){
+ if(!proxy_active()||worker_thread){__real_SDL_GL_SwapWindow(window);return ds_rt_error()?-1:0;}
+ static int async_mode=-1;
+ if(async_mode<0){const char *e=getenv("DS_RT_ASYNC_SWAP");async_mode=!(e&&!strcmp(e,"0"));fprintf(stderr,"[render-thread] present mode=%s\n",async_mode?"ASYNC":"SYNC");}
+ Swap s={window};
+ if(!async_mode)return ds_rt_call(swap_job,&s);
+ issue(swap_job,OP_NATIVE_JOB,&s,sizeof s,NULL,0,SIZE_MAX,0);
+ atomic_fetch_add_explicit(&q.swap_submitted,1,memory_order_release);
+ publish();
+ while(atomic_load_explicit(&q.swap_submitted,memory_order_acquire)-atomic_load_explicit(&q.swap_completed,memory_order_acquire)>=2){
+  SDL_LockMutex(q.mutex);
+  while(atomic_load_explicit(&q.swap_submitted,memory_order_acquire)-atomic_load_explicit(&q.swap_completed,memory_order_acquire)>=2)
+   SDL_CondWait(q.space,q.mutex);
+  SDL_UnlockMutex(q.mutex);
+ }
+ return ds_rt_error()?-1:0;
+}
+void __wrap_SDL_GL_SwapWindow(SDL_Window *window){if(!proxy_active()||worker_thread){__real_SDL_GL_SwapWindow(window);return;}ds_rt_swap(window);}
 typedef struct {int interval,result;char error[192];} Interval;
 static void interval_job(void *p){Interval *i=p;i->result=__real_SDL_GL_SetSwapInterval(i->interval);if(i->result<0)snprintf(i->error,sizeof i->error,"%s",SDL_GetError());}
 int __wrap_SDL_GL_SetSwapInterval(int interval){if(!proxy_active()||worker_thread)return __real_SDL_GL_SetSwapInterval(interval);Interval i={interval,0,{0}};ds_rt_call(interval_job,&i);if(i.result<0)SDL_SetError("%s",i.error);return i.result;}

@@ -42,8 +42,14 @@ pm_platform_helper and pm_finish. It does not require a downloaded runtime.
 
 Recommended: 640x480, SINGLE, BUFFER CACHE OFF, SHADOWS SIMPLE.
 Existing preferences are preserved; change them in the launcher if needed.
-Heavy H700 gameplay previously measured around 17-18 FPS; stable 30 FPS is not
-achieved. The packaging changes are locally tested, not newly H700-verified.
+Open RENDER OPTIONS for renderer, resolution, shadows, buffer cache and the
+additional render switches. Unavailable combinations show BLOCKED and preserve
+your preferences. See RENDER_OPTIONS.md for each switch. SINGLE blocks ASYNC PRESENT; THREADED blocks RANGED DRAWS
+and DEPTH INVALIDATE. 512x384 renders below screen resolution and scales to fit.
+
+H700 gameplay has been tested, but demanding scenes still fall below 30 FPS.
+The guarded material-state optimization saved approximately 0.55-1.11 ms/frame
+in two stationary save-slot-4 comparisons; this is not a whole-game guarantee.
 Optional performance probes are disabled by default. Normal error logs stay in the port.
 
 ## Controls

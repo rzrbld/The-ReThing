@@ -24,6 +24,9 @@ On muOS, copy `The ReThing.sh` to `Roms/PORTS` if that is where your menu looks
 for shortcuts. Keep the game folder in `ports/the_rething`.
 
 Recommended settings: **640×480, SINGLE, buffer cache OFF, shadows SIMPLE**.
+Open **RENDER OPTIONS** in the launcher for graphics controls. Options that require
+a different renderer are blocked; saved preferences are preserved. See
+[render options](docs/RENDER_OPTIONS.md).
 Requires AArch64 firmware, glibc 2.36+, Bash, SDL2, SDL2_ttf and `libmali.so.0`.
 Other GPU drivers and 32-bit firmware are not supported by this binary.
 

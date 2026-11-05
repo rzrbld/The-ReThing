@@ -9,6 +9,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+/* SDL is linked into the game; declare the two GLES3 entry-point lookups we need
+ * without pulling SDL headers into this translation unit. */
+extern void *SDL_GL_GetProcAddress(const char *name);
+/* Strong only in the threaded build: when the GL worker owns the context, a
+ * direct extension-function call made from the producer thread has no current
+ * context and silently does nothing. Extension entry points must then fall back
+ * to the wrapped core calls (which the proxy queues). */
+extern int ds_rt_active(void) __attribute__((weak));
+static int render_thread_active(void){
+    static int state=-1;
+    if(state<0)state=ds_rt_active?ds_rt_active():0;
+    return state;
+}
+/* glInvalidateFramebuffer attachment enums: not in the GLES2 header. */
+#ifndef GL_DEPTH
+#define GL_DEPTH 0x1801
+#endif
+#ifndef GL_STENCIL
+#define GL_STENCIL 0x1802
+#endif
 
 static const char *setting(const char *name){
     if(!strncmp(name,"DS_",3)){char alias[96];snprintf(alias,sizeof alias,"THING_%s",name+3);const char *value=getenv(alias);if(value)return value;}
@@ -133,12 +153,12 @@ static void small2f(D8SmallUniformCache *c,unsigned slot,GLint loc,GLfloat a,GLf
 static void small3f(D8SmallUniformCache *c,unsigned slot,GLint loc,GLfloat a,GLfloat b,GLfloat d){if(loc<0)return;GLfloat v[]={a,b,d};if(small_changed(c,slot,v,sizeof v))glUniform3f(loc,a,b,d);}
 static void small4f(D8SmallUniformCache *c,unsigned slot,GLint loc,GLfloat a,GLfloat b,GLfloat d,GLfloat e){if(loc<0)return;GLfloat v[]={a,b,d,e};if(small_changed(c,slot,v,sizeof v))glUniform4f(loc,a,b,d,e);}
 static void small4fv(D8SmallUniformCache *c,unsigned slot,GLint loc,const GLfloat v[4]){if(loc<0)return;if(small_changed(c,slot,v,4*sizeof(*v)))glUniform4fv(loc,1,v);}
-static GLuint make_gpu_program(GLuint fragment);
+static GLuint make_gpu_program(GLuint fragment,int has0,int has1,int spec);
 /* Shared fragment shader pieces. The generic program declares the stage
  * state as uniforms; specialised variants declare the same symbols as
  * compile-time constants, so the GLSL compiler folds arg/op/stage away while
  * the emitted maths stays identical. */
-static const char *FS_HEAD="precision mediump float;varying vec4 dc;varying vec4 sc;varying vec2 tc0;varying vec2 tc1;varying float fd;";
+static const char *FS_HEAD="precision mediump float;varying mediump vec4 dc;varying mediump vec4 sc;varying mediump vec2 tc0;varying mediump vec2 tc1;varying mediump float fd;";
 static const char *FS_CODE_FAST=
     "vec4 arg(int n,vec4 t,vec4 cur){int code=n;bool comp=false;bool rep=false;if(code>=32){rep=true;code-=32;}if(code>=16){comp=true;code-=16;}vec4 v=dc;if(code==1)v=cur;else if(code==2)v=t;else if(code==3)v=factor;else if(code==4)v=sc;if(comp)v=vec4(1.)-v;if(rep)v=vec4(v.a);return v;}"
     "vec4 op(int n,vec4 a,vec4 b,vec4 t,vec4 cur){if(n==2)return a;if(n==3)return b;if(n==4)return a*b;if(n==5)return 2.*a*b;if(n==6)return 4.*a*b;if(n==7)return a+b;if(n==8)return a+b-.5;if(n==9)return 2.*(a+b-.5);if(n==10)return a-b;if(n==11)return a+b-a*b;if(n==12)return mix(b,a,dc.a);if(n==13)return mix(b,a,t.a);if(n==14)return mix(b,a,factor.a);if(n==15)return a+b*(1.-t.a);if(n==16)return mix(b,a,cur.a);if(n==24)return vec4(dot(a.rgb*2.-1.,b.rgb*2.-1.));return cur;}"
@@ -153,29 +173,47 @@ static GLuint build_frag_shader_source(char *out,size_t cap,uint64_t key){
     unsigned cop0=(unsigned)((key>>5)&31u),aop0=(unsigned)((key>>10)&31u);
     unsigned c0y=(unsigned)((key>>15)&31u),c0z=(unsigned)((key>>20)&31u);
     unsigned a0y=(unsigned)((key>>25)&31u),a0z=(unsigned)((key>>30)&31u);
+    /* Bit 35: alpha test is disabled for this draw state, so afunc is a
+     * compile-time 8. The discard block then constant-folds away and the Mali
+     * driver can enable forward pixel kill, which a shader that can discard
+     * never gets (Halo-G31 port notes: alpha test and forward pixel kill). */
+    int noalpha=(int)((key>>35)&1u);
     (void)stages;
+    /* Match the specialised vertex shader: declare (and only then use) the
+     * varyings that vertex stage actually writes. has1 is always false in a
+     * variant, so tc1 is replaced with a constant; tc0 exists only for
+     * textured variants; sc is always written by the variant vertex shader. */
+    char head[256];
+    snprintf(head,sizeof head,"precision mediump float;varying mediump vec4 dc;varying mediump vec4 sc;%s%svarying mediump float fd;",
+             has0?"varying mediump vec2 tc0;":"",has0?"":"");
+    char code[3072];
+    snprintf(code,sizeof code,"%s",FS_CODE_FAST);
+    if(!has0){char *p;while((p=strstr(code,"tc0"))){memmove(p+8,p+3,strlen(p+3)+1);memcpy(p,"vec2(0.)",8);}}
+    {char *p;while((p=strstr(code,"tc1"))){memmove(p+8,p+3,strlen(p+3)+1);memcpy(p,"vec2(0.)",8);}}
     snprintf(out,cap,"%s"
-        "uniform sampler2D tex0;uniform sampler2D tex1;uniform vec4 factor;uniform int afunc;uniform float aref;uniform int fogmode;uniform vec4 fogcolor;uniform vec3 fogparam;%s"
+        "uniform sampler2D tex0;uniform sampler2D tex1;uniform vec4 factor;%s uniform float aref;uniform int fogmode;uniform vec4 fogcolor;uniform vec3 fogparam;"
         "const bool has0=%s;const bool has1=false;const bool specular=%s;"
         "const ivec4 cop0=ivec4(%u,%u,%u,0);const ivec4 aop0=ivec4(%u,%u,%u,0);const ivec4 cop1=ivec4(1,0,0,0);const ivec4 aop1=ivec4(1,0,0,0);"
-        "%s",FS_HEAD,"",has0?"true":"false",spec?"true":"false",cop0,c0y,c0z,aop0,a0y,a0z,FS_CODE_FAST);
+        "%s",head,noalpha?"const int afunc=8;":"uniform int afunc;",has0?"true":"false",spec?"true":"false",cop0,c0y,c0z,aop0,a0y,a0z,code);
     return shader(GL_FRAGMENT_SHADER,out);
 }
-static uint64_t frag_state_key(const D8State *s,const GLuint textures[2],unsigned stages){
+static uint64_t frag_state_key(const D8State *s,const GLuint textures[2],unsigned stages,int alpha_elide){
     if(stages>1)return ~(uint64_t)0;
     uint64_t has0=textures[0]?1u:0u;
     return (uint64_t)(stages&3u)|(has0<<2)|((uint64_t)(s->rs[29]!=0)<<4)
         |((uint64_t)(s->tss[0][1]&31u)<<5)|((uint64_t)(s->tss[0][4]&31u)<<10)
         |((uint64_t)(s->tss[0][2]&31u)<<15)|((uint64_t)(s->tss[0][3]&31u)<<20)
-        |((uint64_t)(s->tss[0][5]&31u)<<25)|((uint64_t)(s->tss[0][6]&31u)<<30);
+        |((uint64_t)(s->tss[0][5]&31u)<<25)|((uint64_t)(s->tss[0][6]&31u)<<30)
+        |((uint64_t)((alpha_elide&&!s->rs[15])?1u:0u)<<35);
 }
 static int get_frag_variant(D8Renderer *r,uint64_t key);
 static uint64_t variant_key(int stages,int has0,int spec,unsigned cop0,unsigned aop0,
-                            unsigned cy,unsigned cz,unsigned ay,unsigned az){
+                            unsigned cy,unsigned cz,unsigned ay,unsigned az,int noalpha){
     return (uint64_t)(stages&3)|((uint64_t)(has0?1u:0u)<<2)|((uint64_t)(spec?1u:0u)<<4)
         |((uint64_t)(cop0&31u)<<5)|((uint64_t)(aop0&31u)<<10)
         |((uint64_t)(cy&31u)<<15)|((uint64_t)(cz&31u)<<20)
-        |((uint64_t)(ay&31u)<<25)|((uint64_t)(az&31u)<<30);
+        |((uint64_t)(ay&31u)<<25)|((uint64_t)(az&31u)<<30)
+        |((uint64_t)(noalpha?1u:0u)<<35);
 }
 int d8_renderer_init(D8Renderer *r) {
     memset(r,0,sizeof(*r));const char *trim=setting("DS_GPU_TRIM_VB");r->trim_vertex_prefix=trim&&atoi(trim);
@@ -190,14 +228,22 @@ int d8_renderer_init(D8Renderer *r) {
     {const char *pp=setting("THING_PERF_PROBE");if(!pp)pp=setting("DS_PERF_PROBE");r->perf_enabled=pp&&!strcmp(pp,"1");}r->output_scale=1.0f;
     const char *every=setting("DS_DRAW_ERROR_CHECK_EVERY");int interval=every?atoi(every):1;
     if(interval<1)interval=1;r->draw_error_interval=(uint32_t)interval;r->draw_error_countdown=r->draw_error_interval;
-    static const char *VS_FAST="attribute vec4 p;attribute vec4 c;attribute vec4 spec;attribute vec2 uv0;attribute vec2 uv1;attribute float fog;varying vec4 dc;varying vec4 sc;varying vec2 tc0;varying vec2 tc1;varying float fd;void main(){gl_Position=p;dc=c;sc=spec;tc0=uv0;tc1=uv1;fd=fog;}";
+    static const char *VS_FAST="attribute vec4 p;attribute vec4 c;attribute vec4 spec;attribute vec2 uv0;attribute vec2 uv1;attribute float fog;varying mediump vec4 dc;varying mediump vec4 sc;varying mediump vec2 tc0;varying mediump vec2 tc1;varying mediump float fd;void main(){gl_Position=p;dc=c;sc=spec;tc0=uv0;tc1=uv1;fd=fog;}";
     const char *vs=VS_FAST;
     char fsbuf[8192];snprintf(fsbuf,sizeof fsbuf,"%s%s%s",FS_HEAD,FS_GENERIC_HEAD_FAST,FS_CODE_FAST);const char *fs=fsbuf;
     GLuint v=shader(GL_VERTEX_SHADER,vs),f=shader(GL_FRAGMENT_SHADER,fs);if(!v||!f)return -1;
     r->program=glCreateProgram();glAttachShader(r->program,v);glAttachShader(r->program,f);
     const char *attrs[]={"p","c","spec","uv0","uv1","fog"};for(int i=0;i<6;i++)glBindAttribLocation(r->program,(GLuint)i,attrs[i]);
     glLinkProgram(r->program);
-    const char *gpu=setting("DS_GPU_VERTEX");if(gpu&&atoi(gpu)){r->gpu_program=make_gpu_program(f);if(r->gpu_program){glGenBuffers(1,&r->gpu_vbo);glGenBuffers(1,&r->gpu_ibo);fprintf(stderr,"[d3d8] optional GPU vertex path enabled\n");}else fprintf(stderr,"[d3d8] GPU vertex shader unavailable; using CPU reference\n");}
+    const char *gpu=setting("DS_GPU_VERTEX");if(gpu&&atoi(gpu)){r->gpu_program=make_gpu_program(f,1,1,1);if(r->gpu_program){glGenBuffers(1,&r->gpu_vbo);glGenBuffers(1,&r->gpu_ibo);fprintf(stderr,"[d3d8] optional GPU vertex path enabled\n");}else fprintf(stderr,"[d3d8] GPU vertex shader unavailable; using CPU reference\n");}
+    {const char *one=setting("DS_ONE_UPLOAD");r->one_upload=one&&!strcmp(one,"1");if(r->one_upload){glGenBuffers(1,&r->gpu_combo);fprintf(stderr,"[d3d8] one-upload packing enabled\n");}}
+    /* GLES3 entry points available on this driver: ranged base-vertex draws
+     * (skip the driver's index scan) and framebuffer invalidation. */
+    r->range_draw_proc=(D8RangeDrawProc)SDL_GL_GetProcAddress("glDrawRangeElementsBaseVertex");
+    r->invalidate_proc=(D8InvalidateProc)SDL_GL_GetProcAddress("glInvalidateFramebuffer");
+    {const char *rd=setting("DS_RANGE_DRAW");r->range_draw_enabled=r->range_draw_proc&&!(rd&&!strcmp(rd,"0"));if(r->range_draw_enabled)fprintf(stderr,"[d3d8] ranged base-vertex draws enabled\n");}
+    {const char *ae=setting("DS_ALPHA_ELIDE");r->alpha_elide=!(ae&&!strcmp(ae,"0"));}
+    {const char *inv=setting("DS_INVALIDATE_DEPTH");r->invalidate_depth=r->invalidate_proc&&!(inv&&!strcmp(inv,"0"));}
     GLint ok;glGetProgramiv(r->program,GL_LINK_STATUS,&ok);if(!ok){glDeleteShader(v);glDeleteShader(f);return -1;}
     r->shared_vs=v;r->generic_program=r->program;r->generic_gpu_program=r->gpu_program;
     r->gpu_path_enabled=r->gpu_program!=0;r->active_frag=-1;
@@ -222,8 +268,12 @@ int d8_renderer_init(D8Renderer *r) {
             {0,0,1,5,4},
             {0,0,0,4,4},
         };
-        for(unsigned i=0;i<sizeof(common)/sizeof(common[0]);i++)
-            (void)get_frag_variant(r,variant_key(common[i].stages,common[i].has0,common[i].spec,common[i].cop0,common[i].aop0,2,1,2,1));
+        for(unsigned i=0;i<sizeof(common)/sizeof(common[0]);i++){
+            (void)get_frag_variant(r,variant_key(common[i].stages,common[i].has0,common[i].spec,common[i].cop0,common[i].aop0,2,1,2,1,0));
+            /* The same common state without alpha test: no discard instruction,
+             * so Mali can enable forward pixel kill for opaque draws. */
+            if(r->alpha_elide)(void)get_frag_variant(r,variant_key(common[i].stages,common[i].has0,common[i].spec,common[i].cop0,common[i].aop0,2,1,2,1,1));
+        }
         /* Additional states seen in lead-variants2/run.log. The histogram's
          * bit layout differs from variant_key; decode explicitly. */
         static const uint64_t observed[]={
@@ -238,20 +288,20 @@ int d8_renderer_init(D8Renderer *r) {
             if((k&3)>1||(k&8))continue;
             (void)get_frag_variant(r,variant_key(k&3,(k>>2)&1,(k>>4)&1,
                 (k>>11)&31,(k>>16)&31,(k>>21)&31,(k>>26)&31,
-                (k>>31)&31,(k>>36)&31));
+                (k>>31)&31,(k>>36)&31,0));
         }
         fprintf(stderr,"[d3d8] fragment specialisation enabled (%u common variants prebuilt, max %d)\n",r->frag_count,DS_FRAG_VARIANTS);
     }
     return 0;
 }
-void d8_renderer_close(D8Renderer *r){if(raster_owner==r)raster_owner=NULL;if(attribute_owner==r)attribute_owner=NULL;if(texture_owner==r)texture_owner=NULL;if(bind_owner==r)bind_owner=NULL;glDeleteBuffers(3,r->ring_vbo);glDeleteBuffers(1,&r->gpu_vbo);glDeleteBuffers(1,&r->gpu_ibo);for(unsigned i=0;i<r->frag_count;i++){if(r->frag_variants[i].cpu_program)glDeleteProgram(r->frag_variants[i].cpu_program);if(r->frag_variants[i].gpu_program)glDeleteProgram(r->frag_variants[i].gpu_program);if(r->frag_variants[i].fragment)glDeleteShader(r->frag_variants[i].fragment);}
+void d8_renderer_close(D8Renderer *r){if(raster_owner==r)raster_owner=NULL;if(attribute_owner==r)attribute_owner=NULL;if(texture_owner==r)texture_owner=NULL;if(bind_owner==r)bind_owner=NULL;glDeleteBuffers(3,r->ring_vbo);glDeleteBuffers(1,&r->gpu_vbo);glDeleteBuffers(1,&r->gpu_ibo);glDeleteBuffers(1,&r->gpu_combo);free(r->combo_staging);for(unsigned i=0;i<r->frag_count;i++){if(r->frag_variants[i].cpu_program)glDeleteProgram(r->frag_variants[i].cpu_program);if(r->frag_variants[i].gpu_program)glDeleteProgram(r->frag_variants[i].gpu_program);if(r->frag_variants[i].fragment)glDeleteShader(r->frag_variants[i].fragment);}
     glDeleteProgram(r->generic_gpu_program);glDeleteProgram(r->generic_program);if(r->shared_vs)glDeleteShader(r->shared_vs);glDeleteBuffers(1,&r->vbo);free(r->rebased_indices);free(r->vertices);memset(r,0,sizeof(*r));}
 void d8_renderer_report_gl_stats(D8Renderer *r){
     const char *enabled=setting("DS_GL_STATS");if(!enabled||strcmp(enabled,"1"))return;
-    fprintf(stderr,"[d3d8-gl] calls use_program=%llu bind_array=%llu bind_element=%llu active_texture=%llu bind_texture=%llu draws=%llu error_checks=%llu error_detections=%llu buffer_data=%llu buffer_subdata=%llu bind_cache=%s ring_vb=%s error_check_every=%u\n",
+    fprintf(stderr,"[d3d8-gl] calls use_program=%llu bind_array=%llu bind_element=%llu active_texture=%llu bind_texture=%llu draws=%llu range_draws=%llu error_checks=%llu error_detections=%llu buffer_data=%llu buffer_subdata=%llu bind_cache=%s ring_vb=%s error_check_every=%u\n",
         (unsigned long long)r->gl_stats.use_program,(unsigned long long)r->gl_stats.bind_array,
         (unsigned long long)r->gl_stats.bind_element,(unsigned long long)r->gl_stats.active_texture,
-        (unsigned long long)r->gl_stats.bind_texture,(unsigned long long)r->gl_stats.draws,
+        (unsigned long long)r->gl_stats.bind_texture,(unsigned long long)r->gl_stats.draws,(unsigned long long)r->gl_stats.range_draws,
         (unsigned long long)r->gl_stats.error_checks,(unsigned long long)r->gl_stats.error_detections,
         (unsigned long long)r->gl_stats.buffer_data,(unsigned long long)r->gl_stats.buffer_subdata,
         r->bind_cache_disabled?"off":"on",r->ring_vb_disabled?"off":"on",r->draw_error_interval);
@@ -354,18 +404,27 @@ static void light_vertex(const D8State *s,const D8CpuLighting *cache,const float
 }
 /* Opt-in native FVF path. Matrices are row-major D3D matrices: uploading with
  * transpose=false gives the column-vector transpose required by GLSL. */
-static GLuint make_gpu_program(GLuint fragment){
+static GLuint make_gpu_program(GLuint fragment,int has0,int has1,int spec){
  const char *src=
- "precision highp float;attribute vec4 p;attribute vec3 normal;attribute vec4 color;attribute vec4 spec;attribute vec4 uv0;attribute vec4 uv1;"
- "varying vec4 dc;varying vec4 sc;varying vec2 tc0;varying vec2 tc1;varying float fd;"
+ "%s"
+ "precision highp float;attribute vec4 p;attribute vec3 normal;attribute vec4 color;attribute vec4 spec;\n"
+ "#ifdef VS_HAS0\nattribute vec4 uv0;\n#endif\n#ifdef VS_HAS1\nattribute vec4 uv1;\n#endif\n"
+ "varying mediump vec4 dc;\n"
+ "#ifdef VS_SPEC\nvarying mediump vec4 sc;\n#endif\n"
+ "#ifdef VS_HAS0\nvarying mediump vec2 tc0;\n#endif\n"
+ "#ifdef VS_HAS1\nvarying mediump vec2 tc1;\n#endif\n"
+ "varying mediump float fd;"
  "uniform mat4 world,view,projection,texmat0,texmat1;uniform mat3 normalmat;uniform vec4 viewport;uniform vec2 zrange;uniform vec3 eye,camera;uniform bool localviewer;"
  "uniform ivec4 flags;uniform ivec4 sources;uniform ivec4 texflags;uniform vec4 material[4];uniform float power;uniform vec4 ambient;%s"
  "uniform vec4 lights[56];uniform vec4 enabled[2];"
  "vec3 norm(vec3 a){float n=length(a);return n>0.?a/n:a;}"
  "vec4 source(int i,vec4 m){if(i==1)return color.bgra;if(i==2)return spec.bgra;return m;}"
  "vec2 coord(vec4 uv,mat4 m,int f,int flip){if(f!=0)uv=m*uv;float q=1.;if(f>=256){int n=f-256;if(n==1)q=uv.x;else if(n==2)q=uv.y;else if(n==3)q=uv.z;else q=uv.w;}if(q==0.)q=1.;vec2 t=uv.xy/q;if(flip!=0)t.y=1.-t.y;return t;}"
- "void main(){%sdc=color.bgra;sc=spec.bgra;tc0=coord(uv0,texmat0,texflags.x,texflags.z);tc1=coord(uv1,texmat1,texflags.y,texflags.w);"
- "if(flags.x!=0){float w=p.w!=0.?1./p.w:1.;vec2 xy=(p.xy+vec2(.5)-viewport.xy)/viewport.zw;float z=zrange.y!=zrange.x?(p.z-zrange.x)/(zrange.y-zrange.x):0.;gl_Position=vec4((xy.x*2.-1.)*w,(1.-xy.y*2.)*w,(2.*z-1.)*w,w);fd=flags.w!=0?p.z:sc.a;}"
+ "void main(){%sdc=color.bgra;\n"
+ "#ifdef VS_SPEC\nsc=spec.bgra;\n#endif\n"
+ "#ifdef VS_HAS0\ntc0=coord(uv0,texmat0,texflags.x,texflags.z);\n#endif\n"
+ "#ifdef VS_HAS1\ntc1=coord(uv1,texmat1,texflags.y,texflags.w);\n#endif\n"
+ "if(flags.x!=0){float w=p.w!=0.?1./p.w:1.;vec2 xy=(p.xy+vec2(.5)-viewport.xy)/viewport.zw;float z=zrange.y!=zrange.x?(p.z-zrange.x)/(zrange.y-zrange.x):0.;gl_Position=vec4((xy.x*2.-1.)*w,(1.-xy.y*2.)*w,(2.*z-1.)*w,w);fd=flags.w!=0?p.z:spec.a;}"
  "else {vec4 wp=world*vec4(p.xyz,1.);vec4 vp=view*wp;gl_Position=projection*vp;gl_Position.z=2.*gl_Position.z-gl_Position.w;fd=abs(vp.z);"
  "if(flags.y!=0){vec3 n=normalmat*normal;if(flags.z!=0)n=norm(n);vec4 md=source(sources.x,material[0]);vec4 ma=source(sources.y,material[1]);vec4 ms=source(sources.z,material[2]);vec4 me=source(sources.w,material[3]);"
  "vec3 c=me.rgb+ambient.rgb*ma.rgb;vec3 highlight=vec3(0.);vec3 e=localviewer?norm(camera-wp.xyz):norm(eye);"
@@ -374,9 +433,12 @@ static GLuint make_gpu_program(GLuint fragment){
  "if(type==3.)l=-e0.xyz;else if(type==1.||type==2.){l=d.yzw-wp.xyz;float distance=length(l);if(distance>e0.w)continue;att=1./max(.000001,f.y+f.z*distance+f.w*distance*distance);}else continue;l=norm(l);"
  "if(type==2.){float cosine=-dot(l,norm(e0.xyz));float outer=cos(g.y*.5),inner=cos(g.x*.5);if(cosine<=outer)continue;if(cosine<inner)att*=pow((cosine-outer)/max(.00000001,inner-outer),f.x);}"
  "float nd=max(0.,dot(n,l));c+=att*(a.yzw*md.rgb*nd+c0.yzw*ma.rgb);if(g.z!=0.&&nd>0.)highlight+=att*b.yzw*ms.rgb*pow(max(0.,dot(n,norm(l+e))),power);"
- "}dc=clamp(vec4(c%s,md.a),0.,1.);sc=clamp(vec4(highlight,sc.a),0.,1.);}}}";
+ "}dc=clamp(vec4(c%s,md.a),0.,1.);\n"
+ "#ifdef VS_SPEC\nsc=clamp(vec4(highlight,spec.a),0.,1.);\n#endif\n}}}";
  char srcbuf[8192];
- snprintf(srcbuf,sizeof srcbuf,src,"",
+ char defs[128];
+ snprintf(defs,sizeof defs,"%s%s%s",has0?"#define VS_HAS0\n":"",has1?"#define VS_HAS1\n":"",spec?"#define VS_SPEC\n":"");
+ snprintf(srcbuf,sizeof srcbuf,src,defs,"",
           "",
           "");
  GLuint v=shader(GL_VERTEX_SHADER,srcbuf);if(!v)return 0;GLuint p=glCreateProgram();glAttachShader(p,v);glAttachShader(p,fragment);
@@ -423,7 +485,7 @@ static D8GpuUploadCache *gpu_large_cache(D8Renderer *r){
  return r->active_frag>=0?&r->frag_uploaded[r->active_frag]:&r->generic_uploaded;
 }
 static int gpu_prepare(D8Renderer *r,const D8State *s,unsigned n,const void *data,size_t stride,unsigned vcount,const void *indices,unsigned isize,unsigned base,unsigned stages,const D8NativeBuffers *native){
- unsigned max=0,min=UINT32_MAX,pos=s->fvf&14,tc=(s->fvf>>8)&15;
+ unsigned max=0,min=UINT32_MAX,pos=s->fvf&14,tc=(s->fvf>>8)&15;r->gpu_index_offset=0;
  if(native&&native->index&&indices&&(native->index_offset>native->index_bytes||(size_t)n*isize>native->index_bytes-native->index_offset))return reject("native index buffer range exceeds allocation: offset=%zu bytes=%zu count=%u size=%u",native->index_offset,native->index_bytes,n,isize);
 
  struct timespec index_t0,index_t1;if(r->perf_enabled)clock_gettime(CLOCK_MONOTONIC,&index_t0);
@@ -453,6 +515,13 @@ static int gpu_prepare(D8Renderer *r,const D8State *s,unsigned n,const void *dat
      if(need>native->vertex_bytes-offset)return reject("native vertex buffer range exceeds allocation: offset=%zu need=%zu bytes=%zu",offset,need,native->vertex_bytes);
      attribute_base=native->vertex_offset+(size_t)base*stride;
  }
+ /* Ranged base-vertex draw parameters: start/end are the index values of the
+  * drawn range (0..max-first after any trim rebase), basevertex is the vertex
+  * offset added by the driver. Native vertex buffers fold the base into the
+  * attribute pointers, so their basevertex is 0. */
+ /* Both upload paths already fold the vertex base into the buffer start /
+  * attribute pointer, so the driver only needs the index range: basevertex 0. */
+ if(indices&&r->range_draw_enabled){r->range_start=(GLuint)(first?0:min);r->range_end=(GLuint)(max-first);r->range_base=0;}
  if(first){
      size_t bytes=(size_t)n*isize;if(r->rebased_capacity<bytes){void *scratch=realloc(r->rebased_indices,bytes);if(!scratch)return reject("GPU index rebasing allocation failed: %zu bytes",bytes);r->rebased_indices=scratch;r->rebased_capacity=bytes;}
      for(unsigned i=0;i<n;i++){if(isize==2){uint16_t ix;memcpy(&ix,(const char*)indices+i*2,2);ix=(uint16_t)(ix-first);memcpy((char*)r->rebased_indices+i*2,&ix,2);}else{uint32_t ix;memcpy(&ix,(const char*)indices+i*4,4);ix-=first;memcpy((char*)r->rebased_indices+i*4,&ix,4);}}
@@ -499,18 +568,39 @@ static int gpu_prepare(D8Renderer *r,const D8State *s,unsigned n,const void *dat
  if(gpu_upload_changed(uploaded,9,uploaded->light_on,s->light_on,sizeof s->light_on)){float on[8];for(int i=0;i<8;i++)on[i]=s->light_on[i]!=0;glUniform4fv(u->enabled,2,on);}
  }
  size_t vertex_bytes=((size_t)max-first+1)*stride;
- if(native&&native->vertex){bind_array_buffer(r,native->vertex);r->uploads.native_vertex_draws++;}
- else{bind_array_buffer(r,r->gpu_vbo);glBufferData(GL_ARRAY_BUFFER,vertex_bytes,(const char*)data+((size_t)base+first)*stride,GL_STREAM_DRAW);d8_renderer_note_buffer_upload(r,0,vertex_bytes);}
+ size_t index_bytes=indices?(size_t)n*isize:0;
+ /* DS_ONE_UPLOAD: one buffer bound to both targets and one glBufferData per
+  * draw, instead of the legacy vertex upload + index upload (two driver
+  * calls). Only the non-native path has anything to pack. */
+ int combo=r->one_upload&&indices&&!(native&&(native->vertex||native->index));
+ GLuint attribute_buffer;size_t attribute_offset_base=attribute_base;
+ if(native&&native->vertex){bind_array_buffer(r,native->vertex);r->uploads.native_vertex_draws++;attribute_buffer=native->vertex;}
+ else if(combo){
+     size_t need=vertex_bytes+index_bytes;
+     if(r->combo_capacity<need){void *p=realloc(r->combo_staging,need);if(!p)return reject("GPU one-upload staging allocation failed: %zu bytes",need);r->combo_staging=p;r->combo_capacity=need;}
+     memcpy(r->combo_staging,(const char*)data+((size_t)base+first)*stride,vertex_bytes);
+     memcpy((char*)r->combo_staging+vertex_bytes,uploaded_indices,index_bytes);
+     bind_array_buffer(r,r->gpu_combo);
+     glBufferData(GL_ARRAY_BUFFER,need,r->combo_staging,GL_STREAM_DRAW);
+     r->gl_stats.buffer_data++;
+     d8_renderer_note_buffer_upload(r,0,vertex_bytes);
+     d8_renderer_note_buffer_upload(r,1,index_bytes);
+     attribute_buffer=r->gpu_combo;attribute_offset_base=0;r->gpu_index_offset=vertex_bytes;
+ }
+ else{bind_array_buffer(r,r->gpu_vbo);glBufferData(GL_ARRAY_BUFFER,vertex_bytes,(const char*)data+((size_t)base+first)*stride,GL_STREAM_DRAW);d8_renderer_note_buffer_upload(r,0,vertex_bytes);attribute_buffer=r->gpu_vbo;}
  r->uploads.prefix_vertex_bytes+=((size_t)max+1)*stride;r->uploads.avoidable_prefix_bytes+=(size_t)min*stride;if(first)r->uploads.trimmed_draws++;
- attributes_begin(r);GLuint attribute_buffer=native&&native->vertex?native->vertex:r->gpu_vbo;
- size_t off=pos==4?16:12;gpu_attribute(r,0,pos==4?4:3,GL_FLOAT,0,stride,attribute_base,attribute_buffer);
- if(s->fvf&16){gpu_attribute(r,1,3,GL_FLOAT,0,stride,attribute_base+off,attribute_buffer);off+=12;}else gpu_constant(r,1,0,0,1,0);if(s->fvf&32)off+=4;
- if(s->fvf&64){gpu_attribute(r,2,4,GL_UNSIGNED_BYTE,1,stride,attribute_base+off,attribute_buffer);off+=4;}else gpu_constant(r,2,1,1,1,1);
- if(s->fvf&128){gpu_attribute(r,3,4,GL_UNSIGNED_BYTE,1,stride,attribute_base+off,attribute_buffer);off+=4;}else gpu_constant(r,3,0,0,0,0);
+ attributes_begin(r);
+ size_t off=pos==4?16:12;gpu_attribute(r,0,pos==4?4:3,GL_FLOAT,0,stride,attribute_offset_base,attribute_buffer);
+ if(s->fvf&16){gpu_attribute(r,1,3,GL_FLOAT,0,stride,attribute_offset_base+off,attribute_buffer);off+=12;}else gpu_constant(r,1,0,0,1,0);if(s->fvf&32)off+=4;
+ if(s->fvf&64){gpu_attribute(r,2,4,GL_UNSIGNED_BYTE,1,stride,attribute_offset_base+off,attribute_buffer);off+=4;}else gpu_constant(r,2,1,1,1,1);
+ if(s->fvf&128){gpu_attribute(r,3,4,GL_UNSIGNED_BYTE,1,stride,attribute_offset_base+off,attribute_buffer);off+=4;}else gpu_constant(r,3,0,0,0,0);
  size_t offsets[8];unsigned dims[8];for(unsigned i=0;i<tc;i++){unsigned d=(s->fvf>>(16+2*i))&3;dims[i]=d==0?2:d==1?3:d==2?4:1;offsets[i]=off;off+=dims[i]*4;}
- for(int t=0;t<2;t++){if((unsigned)t>=stages){gpu_constant(r,4+t,0,0,0,0);continue;}unsigned ix=s->tss[t][11]&65535;if(ix>=8)return reject("GPU invalid texcoord index stage %d index %u",t,ix);if(ix<tc)gpu_attribute(r,4+t,dims[ix],GL_FLOAT,0,stride,attribute_base+offsets[ix],attribute_buffer);else gpu_constant(r,4+t,0,0,0,0);}
- if(indices){if(native&&native->index){bind_element_buffer(r,native->index);r->uploads.native_index_draws++;}
- else{bind_element_buffer(r,r->gpu_ibo);glBufferData(GL_ELEMENT_ARRAY_BUFFER,(size_t)n*isize,uploaded_indices,GL_STREAM_DRAW);d8_renderer_note_buffer_upload(r,1,(size_t)n*isize);}}return 0;
+ for(int t=0;t<2;t++){if((unsigned)t>=stages){gpu_constant(r,4+t,0,0,0,0);continue;}unsigned ix=s->tss[t][11]&65535;if(ix>=8)return reject("GPU invalid texcoord index stage %d index %u",t,ix);if(ix<tc)gpu_attribute(r,4+t,dims[ix],GL_FLOAT,0,stride,attribute_offset_base+offsets[ix],attribute_buffer);else gpu_constant(r,4+t,0,0,0,0);}
+ if(indices){
+   if(combo){bind_element_buffer(r,r->gpu_combo);}
+   else if(native&&native->index){bind_element_buffer(r,native->index);r->uploads.native_index_draws++;}
+   else{bind_element_buffer(r,r->gpu_ibo);glBufferData(GL_ELEMENT_ARRAY_BUFFER,index_bytes,uploaded_indices,GL_STREAM_DRAW);d8_renderer_note_buffer_upload(r,1,index_bytes);}
+ }return 0;
 }
 
 /* Streaming upload for the CPU-reference draw path. Every CPU draw uses the
@@ -558,7 +648,7 @@ static int get_frag_variant(D8Renderer *r,uint64_t key){
     for(int i=0;i<6;i++)glBindAttribLocation(cpu,(GLuint)i,attrs[i]);
     glLinkProgram(cpu);GLint ok;glGetProgramiv(cpu,GL_LINK_STATUS,&ok);
     GLuint gpu=0;
-    if(ok&&r->gpu_path_enabled){gpu=make_gpu_program(fr);if(!gpu)ok=0;}
+    if(ok&&r->gpu_path_enabled){gpu=make_gpu_program(fr,(int)((key>>2)&1u),0,1); /* sc stays written: cheap, and avoids any variant path reading an unwritten varying */if(!gpu)ok=0;}
     if(!ok){glDeleteProgram(cpu);glDeleteShader(fr);return -1;}
     unsigned idx=r->frag_count++;
     r->frag_variants[idx].key=key;r->frag_variants[idx].fragment=fr;
@@ -633,7 +723,7 @@ int d8_renderer_draw_native(D8Renderer *r,const D8State *s,unsigned th,unsigned 
         unsigned i;for(i=0;i<r->shader_hist_n;i++)if(r->shader_hist[i].key==key){r->shader_hist[i].count++;break;}
         if(i==r->shader_hist_n&&r->shader_hist_n<64){r->shader_hist[i].key=key;r->shader_hist[i].count=1;r->shader_hist_n++;}
     }
-    select_fragment_program(r,get_frag_variant(r,frag_state_key(s,textures,stages)));
+    select_fragment_program(r,get_frag_variant(r,frag_state_key(s,textures,stages,r->alpha_elide)));
     if(r->active_frag>=0)r->fast_draws++;
     int gpu=r->gpu_program!=0;
  if(r->perf_enabled){r->perf_draws++;if(gpu)r->perf_gpu_draws++;if((s->fvf&14)!=4&&s->rs[137]&&(s->fvf&16))r->perf_lit_draws++;}
@@ -675,7 +765,19 @@ int d8_renderer_draw_native(D8Renderer *r,const D8State *s,unsigned th,unsigned 
     GLint array_first=0;GLuint cpu_buffer=r->vbo;
     if(!gpu){array_first=upload_cpu_vertices(r,dst,bytes,&cpu_buffer);r->uploads.vertex_bytes+=bytes;r->uploads.prefix_vertex_bytes+=bytes;r->uploads.vertex_uploads++;size_t offsets[]={offsetof(Vertex,p),offsetof(Vertex,c),offsetof(Vertex,spec),offsetof(Vertex,uv[0]),offsetof(Vertex,uv[1]),offsetof(Vertex,fog)};int sizes[]={4,4,4,2,2,1};attributes_begin(r);for(int i=0;i<6;i++)gpu_attribute(r,i,sizes[i],GL_FLOAT,GL_FALSE,sizeof(Vertex),offsets[i],cpu_buffer);
     }
-    static const GLenum modes[]={0,GL_POINTS,GL_LINES,GL_LINE_STRIP,GL_TRIANGLES,GL_TRIANGLE_STRIP,GL_TRIANGLE_FAN};if(gpu&&indices)glDrawElements(modes[primitive],n,isize==2?GL_UNSIGNED_SHORT:GL_UNSIGNED_INT,(void*)(native&&native->index?native->index_offset:0));else glDrawArrays(modes[primitive],array_first,n);r->gl_stats.draws++;GLenum e=0;if(--r->draw_error_countdown==0){r->draw_error_countdown=r->draw_error_interval;r->gl_stats.error_checks++;e=glGetError();}if(e){r->gl_stats.error_detections++;d8_renderer_invalidate_raster(r);d8_renderer_invalidate_attributes(r);d8_renderer_invalidate_texture_parameters(r);d8_renderer_invalidate_bindings(r);r->small_uniforms.valid=0;gpu_small_cache(r)->valid=0;gpu_large_cache(r)->valid=0;return reject("GL draw error %#x",e);}return 0;
+    static const GLenum modes[]={0,GL_POINTS,GL_LINES,GL_LINE_STRIP,GL_TRIANGLES,GL_TRIANGLE_STRIP,GL_TRIANGLE_FAN};
+    if(gpu&&indices){
+        GLenum it=isize==2?GL_UNSIGNED_SHORT:GL_UNSIGNED_INT;void *ip=(void*)(native&&native->index?native->index_offset:r->gpu_index_offset);
+        if(r->range_draw_enabled&&r->range_draw_proc&&!render_thread_active()){r->range_draw_proc(modes[primitive],r->range_start,r->range_end,n,it,ip,r->range_base);r->gl_stats.range_draws++;}
+        else glDrawElements(modes[primitive],n,it,ip);
+    } else glDrawArrays(modes[primitive],array_first,n);r->gl_stats.draws++;GLenum e=0;if(--r->draw_error_countdown==0){r->draw_error_countdown=r->draw_error_interval;r->gl_stats.error_checks++;e=glGetError();}if(e){r->gl_stats.error_detections++;d8_renderer_invalidate_raster(r);d8_renderer_invalidate_attributes(r);d8_renderer_invalidate_texture_parameters(r);d8_renderer_invalidate_bindings(r);r->small_uniforms.valid=0;gpu_small_cache(r)->valid=0;gpu_large_cache(r)->valid=0;return reject("GL draw error %#x",e);}return 0;
+}
+
+void d8_renderer_invalidate_depth(D8Renderer *r, int offscreen){
+    if(!r->invalidate_depth||!r->invalidate_proc||render_thread_active())return;
+    /* Named FBOs use attachment enums; GL_DEPTH/STENCIL are default-only. */
+    GLenum att[2]={offscreen?GL_DEPTH_ATTACHMENT:GL_DEPTH,offscreen?GL_STENCIL_ATTACHMENT:GL_STENCIL};
+    r->invalidate_proc(GL_FRAMEBUFFER,2,att);
 }
 
 int d8_renderer_draw(D8Renderer *r,const D8State *s,unsigned th,unsigned primitive,unsigned count,const void *data,size_t stride,unsigned vcount,const void *indices,unsigned isize,unsigned base,const GLuint textures[2]){

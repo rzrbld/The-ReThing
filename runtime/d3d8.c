@@ -170,6 +170,14 @@ static void record_state(const void *value,size_t bytes){
     if(offset+bytes>sizeof state)hle_fatal("invalid D3D8 state record");
     memset(record_mask+offset,1,bytes);
 }
+#include "material_state_reuse.h"
+/* Called before the original material render-state prefix. Recording must see
+ * every setter even when its value is unchanged. Keep the final original
+ * fill-mode setter, texture/resource processing and submission intact. */
+int thing_material_state_reusable(uint32_t material,uint32_t wrapper){
+    if(record_start||!device_obj||!wrapper||MEM32(wrapper+0x538)!=device_obj)return 0;
+    return thing_material_prefix_matches(hle_ptr(material),state.rs);
+}
 static void record_binding(unsigned binding){if(record_start&&binding<10)record_bindings[binding]=1;}
 static unsigned frames;
 /* Opt-in live diagnostics keep the current mission intact while comparing
@@ -598,7 +606,12 @@ static void creation(void){uint32_t p[4]={0,1,presentation[6],0x20};memcpy(APTR(
 static void cursor_position(void){hle_input_cursor((int)A32(1),(int)A32(2));RETV(4);}
 static void cursor_show(void){int old=SDL_ShowCursor(A32(1)?SDL_ENABLE:SDL_DISABLE);RET(old==SDL_ENABLE,2);}
 static void reset(void){batch_barrier();if(!A32(1)){RET(INVALID,2);}uint32_t *p=APTR(1);if((p[0]&&p[0]!=presentation[0])||(p[1]&&p[1]!=presentation[1])){fprintf(stderr,"[d3d8] Reset resolution change unsupported\n");RET(NOTAVAILABLE,2);}memcpy(presentation,p,sizeof presentation);SDL_GL_SetSwapInterval(presentation[12]==0x80000000u?0:1);RET(OK,2);}
-static void present(void){batch_barrier();if(!window){RET(INVALID,5);}if(scale_fbo){if(ds_rt_active&&ds_rt_active()&&ds_rt_call)ds_rt_call(scale_blit_job,NULL);else scale_blit_now();}ds_input_pump();ds_fps_overlay_draw(window);capture_frame(frames+1);d8_renderer_invalidate_raster(&renderer);d8_renderer_invalidate_attributes(&renderer);int tracing=trace_render();uint64_t swap_begin=tracing?SDL_GetPerformanceCounter():0;if(diagnostic_finish)glFinish();SDL_GL_SwapWindow(window);d8_renderer_begin_frame(&renderer);diagnostic_poll();ds_fps_overlay_presented();frames++;if(draw_batch&&frames%600==0)fprintf(stderr,"[draw-batch] cumulative_inputs=%llu emits=%llu saved=%llu\n",(unsigned long long)batch_inputs,(unsigned long long)batch_emits,(unsigned long long)(batch_inputs-batch_emits));trace_present(tracing?(SDL_GetPerformanceCounter()-swap_begin)*1000.0/SDL_GetPerformanceFrequency():0);profile_frame();if(ds_gl_cost_present)ds_gl_cost_present();if(gl_cost_requested){if(ds_gl_cost_begin)ds_gl_cost_begin(gl_cost_requested);gl_cost_requested=0;}if(frames==1){const char *rt=getenv("DS_RENDER_THREAD");int active=ds_rt_active?ds_rt_active():0;
+static void present(void){batch_barrier();if(!window){RET(INVALID,5);}
+    /* The depth/stencil contents are never read after the frame: tell the
+     * tile-based GPU not to write them out (Halo-G31 port note: invalidate
+     * what you will not read). */
+    if(renderer.invalidate_depth){if(scale_fbo){glBindFramebuffer(GL_FRAMEBUFFER,scale_fbo);d8_renderer_invalidate_depth(&renderer,1);}else if(scale_bound==0)d8_renderer_invalidate_depth(&renderer,0);}
+    if(scale_fbo){if(ds_rt_active&&ds_rt_active()&&ds_rt_call)ds_rt_call(scale_blit_job,NULL);else scale_blit_now();}ds_input_pump();ds_fps_overlay_draw(window);capture_frame(frames+1);d8_renderer_invalidate_raster(&renderer);d8_renderer_invalidate_attributes(&renderer);int tracing=trace_render();uint64_t swap_begin=tracing?SDL_GetPerformanceCounter():0;if(diagnostic_finish)glFinish();SDL_GL_SwapWindow(window);d8_renderer_begin_frame(&renderer);diagnostic_poll();ds_fps_overlay_presented();frames++;if(draw_batch&&frames%600==0)fprintf(stderr,"[draw-batch] cumulative_inputs=%llu emits=%llu saved=%llu\n",(unsigned long long)batch_inputs,(unsigned long long)batch_emits,(unsigned long long)(batch_inputs-batch_emits));trace_present(tracing?(SDL_GetPerformanceCounter()-swap_begin)*1000.0/SDL_GetPerformanceFrequency():0);profile_frame();if(ds_gl_cost_present)ds_gl_cost_present();if(gl_cost_requested){if(ds_gl_cost_begin)ds_gl_cost_begin(gl_cost_requested);gl_cost_requested=0;}if(frames==1){const char *rt=getenv("DS_RENDER_THREAD");int active=ds_rt_active?ds_rt_active():0;
         fprintf(stderr,"[d3d8] render mode: requested=%s active=%s\n",rt?rt:"(unset)",active?"THREADED":"SINGLE");}
     if(frames==1||frames%600==0)fprintf(stderr,"[d3d8] Present frame=%u guest=%#x\n",frames,g_cur_func);if(frames%600==0)d8_renderer_perf_dump(&renderer);
     /* Frame pacer for the 30 FPS lock (half-refresh). Only waits when the game

@@ -3,6 +3,11 @@
 #include <GLES2/gl2.h>
 #include <stddef.h>
 #include <stdint.h>
+/* GLES3 entry points the driver reports (context is ES 3.2 on the Mali blob):
+ * ranged base-vertex draws skip the driver's per-draw index scan, and
+ * glInvalidateFramebuffer drops the depth/stencil tile write-out at frame end. */
+typedef void (*D8RangeDrawProc)(GLenum,GLuint,GLuint,GLsizei,GLenum,const void*,GLint);
+typedef void (*D8InvalidateProc)(GLenum,GLsizei,const GLenum*);
 typedef struct {
     uint32_t rs[256], tss[8][32], viewport[6];
     float transform[512][16], material[17], light[8][26];
@@ -44,8 +49,22 @@ typedef struct {
     uint64_t bind_array,bind_element,active_texture,bind_texture,use_program;
     uint64_t draws,error_checks,error_detections;
     uint64_t buffer_data,buffer_subdata; /* streaming-vertex-buffer A/B counter */
+    uint64_t range_draws;                /* glDrawRangeElementsBaseVertex draws */
 } D8GlStats;
-typedef struct { D8AttributeCache attributes; D8TextureParameters texture_parameters[D8_TEXTURE_PARAMETER_SLOTS]; uint32_t texture_epoch; D8RasterCache raster; D8SmallUniformCache small_uniforms,gpu_small_uniforms; D8UploadStats uploads; int trim_vertex_prefix; void *rebased_indices; size_t rebased_capacity; D8GpuUploadCache gpu_uploaded; D8UniformLocations uniforms, gpu_uniforms; GLuint program, vbo, gpu_program, gpu_vbo, gpu_ibo; void *vertices; size_t capacity;
+typedef struct { D8AttributeCache attributes; D8TextureParameters texture_parameters[D8_TEXTURE_PARAMETER_SLOTS]; uint32_t texture_epoch; D8RasterCache raster; D8SmallUniformCache small_uniforms,gpu_small_uniforms; D8UploadStats uploads; int trim_vertex_prefix; void *rebased_indices; size_t rebased_capacity; D8GpuUploadCache gpu_uploaded; D8UniformLocations uniforms, gpu_uniforms; GLuint program, vbo, gpu_program, gpu_vbo, gpu_ibo;
+    /* One-upload packing (DS_ONE_UPLOAD=1): bind one buffer object to both
+     * GL_ARRAY_BUFFER and GL_ELEMENT_ARRAY_BUFFER, pack the used vertex range
+     * and the index range into one payload and issue a single glBufferData per
+     * draw instead of two driver calls (the two calls measured ~9.2+6.9 us per
+     * draw on the H700). gpu_combo is that buffer, combo_staging the host copy,
+     * gpu_index_offset is the element offset used by the following draw. */
+    GLuint gpu_combo; void *combo_staging; size_t combo_capacity; size_t gpu_index_offset; uint32_t one_upload;
+    /* Halo-G31-port transferables: ranged base-vertex draws, alpha-test-free
+     * fragment variants (Mali forward pixel kill), depth/stencil invalidation. */
+    D8RangeDrawProc range_draw_proc; D8InvalidateProc invalidate_proc;
+    uint32_t range_draw_enabled, alpha_elide, invalidate_depth;
+    GLuint range_start,range_end; GLint range_base;
+    void *vertices; size_t capacity;
     /* Cached context bindings so consecutive draws do not reissue the same
      * glBindBuffer/glActiveTexture/glBindTexture/glUseProgram calls. Any
      * external GL mutation invalidates these via
@@ -72,7 +91,7 @@ typedef struct { D8AttributeCache attributes; D8TextureParameters texture_parame
      * path disappear. Remaining uniforms (factor, alpha test, fog) stay.
      * DS_FAST_SHADER=0 keeps the generic program. DS_SHADER_STATS=1 prints the
      * draw-state histogram. */
-#define DS_FRAG_VARIANTS 12
+#define DS_FRAG_VARIANTS 24
     uint32_t fast_shader_enabled;
     uint64_t fast_draws;
     GLuint shared_vs,gpu_path_enabled;
@@ -125,6 +144,7 @@ void d8_renderer_invalidate_bindings(D8Renderer *r);
 void d8_renderer_begin_frame(D8Renderer *r);
 /* Scale glViewport/scissor to the offscreen render resolution (1.0 = guest). */
 void d8_renderer_set_output_scale(D8Renderer *r,float scale);
+void d8_renderer_invalidate_depth(D8Renderer *r, int offscreen);
 void d8_renderer_perf_dump(D8Renderer *r);
 /* Print driver-call counters to stderr when DS_GL_STATS=1; no-op otherwise. */
 void d8_renderer_report_gl_stats(D8Renderer *r);
