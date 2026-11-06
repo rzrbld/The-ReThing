@@ -197,6 +197,27 @@ runtime. QEMU/Mesa testing is not a measurement of Mali/H700 performance.
 Test gameplay, rendering, saving/loading, audio and controls on the actual device
 before claiming hardware compatibility or a frame-rate target.
 
+## Verification record (2026-11-07)
+
+A fresh clone of this repository built the full distribution from the supported
+ISO with `JOBS=16 bash scripts/build_distribution.sh`, without existing
+translations, objects or executables, in 11 min 49 s on a 24-thread x86-64
+workstation (Docker image and public downloads cached). It regenerated all 578
+translated C units across 22 modules, compiled 653 base units, built the
+fixed-register optimized executable, the ARM launcher and audio library, and
+passed the launcher, launch-lifecycle and package checks. The stripped
+fixed-register executable was 73,021,576 bytes with SHA-256:
+
+```text
+7505bd4f37bf53db90719d159b88d756d65da3ba8b682614ac20cccb76ab678a
+```
+
+It links to `libmali.so.0`, SDL2, SDL2_ttf, libm and libc. On an H700 it loaded
+level 1 without faults with the shader cache and GPU streaming ring active.
+This executable is the one in the GPU Streaming release package. Different
+public package or compiler versions may produce a different hash; it is not a
+build input requirement.
+
 ## Verification record (2026-11-03)
 
 This record covers the earlier package, which used the local-register optimized
