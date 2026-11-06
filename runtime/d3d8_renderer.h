@@ -64,6 +64,14 @@ typedef struct { D8AttributeCache attributes; D8TextureParameters texture_parame
     D8RangeDrawProc range_draw_proc; D8InvalidateProc invalidate_proc;
     uint32_t range_draw_enabled, alpha_elide, invalidate_depth;
     GLuint range_start,range_end; GLint range_base;
+    /* GPU streaming ring (DS_GPU_RING): one persistently mapped buffer split
+     * into per-frame segments; each GPU-path draw copies its vertices and
+     * indices in with memcpy and draws with a base vertex, so no per-draw
+     * glBufferData. A fence per segment guarantees it is only rewritten after
+     * the GPU has consumed it. */
+    struct { int on; GLuint buffer; unsigned char *map; size_t segment, pos, end; unsigned index;
+             void *fence[3]; uint64_t draws, fallbacks, waits; } gpu_ring;
+    GLint gpu_array_first;
     void *vertices; size_t capacity;
     /* Cached context bindings so consecutive draws do not reissue the same
      * glBindBuffer/glActiveTexture/glBindTexture/glUseProgram calls. Any

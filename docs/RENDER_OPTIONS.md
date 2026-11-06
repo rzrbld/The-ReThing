@@ -27,7 +27,13 @@ shader variants. Compiled shaders are kept in `userdata/shader-cache`: a shader
 first needed during play (turning round, looking into another room) is compiled
 once, about 0.2 s on H700, and is loaded in under a millisecond at every later
 start, so areas already visited do not hitch. Deleting the folder is safe; it
-is rebuilt as you play. `THING_SHADER_CACHE=0` disables it. The 512x384 path uses the correct framebuffer attachment enums.
+is rebuilt as you play. `THING_SHADER_CACHE=0` disables it.
+
+With the GPU vertex path, per-draw geometry is streamed through one persistently
+mapped buffer split into three per-frame segments, guarded by GPU fences, instead
+of a separate buffer upload for every draw. In a heavy level-1 view on H700 this
+cut frame time from about 35.4 to 32.5 ms. It needs `GL_EXT_buffer_storage` and
+falls back to the previous upload path otherwise; `THING_GPU_RING=0` disables it. The 512x384 path uses the correct framebuffer attachment enums.
 The material-state optimization bypasses only already-satisfied render-state
 setup; textures, resources and geometry submission still execute normally.
 

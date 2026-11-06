@@ -48,7 +48,9 @@ static void invalidate_bindings_values(D8Renderer *r){
     r->bound_tex[0]=r->bound_tex[1]=(GLuint)-1;
 }
 void d8_renderer_invalidate_bindings(D8Renderer *r){invalidate_bindings_values(r);bind_owner=NULL;}
+static void gpu_ring_next_frame(D8Renderer *r);
 void d8_renderer_begin_frame(D8Renderer *r){
+    gpu_ring_next_frame(r);
     if(r->ring_vb_disabled)return;
     r->ring_index=(r->ring_index+1)%3;r->ring_used=0;
 }
@@ -62,6 +64,61 @@ static void use_program(D8Renderer *r,GLuint program){
 static void bind_array_buffer(D8Renderer *r,GLuint buffer){
     bind_owner_begin(r);
     if(r->bind_cache_disabled||r->bound_array!=buffer){glBindBuffer(GL_ARRAY_BUFFER,buffer);r->bound_array=buffer;r->gl_stats.bind_array++;}
+}
+/* ---- GPU streaming ring -------------------------------------------------
+ * Removing the per-draw glBufferData saves about 5 ms of CPU per heavy frame on
+ * H700, but rewriting buffers the GPU may still read stalls the driver (the
+ * buffer cache measured 30.5 ms CPU yet 45 ms frames). The ring never touches
+ * memory in flight: three segments rotate per presented frame and each is
+ * reused only after its fence has signalled. */
+typedef void *(*D8MapRangeProc)(GLenum,GLintptr,GLsizeiptr,GLbitfield);
+typedef void (*D8BufferStorageProc)(GLenum,GLsizeiptr,const void*,GLbitfield);
+typedef void *(*D8FenceSyncProc)(GLenum,GLbitfield);
+typedef GLenum (*D8ClientWaitSyncProc)(void*,GLbitfield,uint64_t);
+typedef void (*D8DeleteSyncProc)(void*);
+static D8FenceSyncProc ring_fence_sync;static D8ClientWaitSyncProc ring_wait_sync;static D8DeleteSyncProc ring_delete_sync;
+#define RING_SEGMENT (4u<<20)
+static void gpu_ring_init(D8Renderer *r){
+    const char *e=setting("DS_GPU_RING");if(e&&!strcmp(e,"0"))return;
+    if(render_thread_active()||!r->range_draw_enabled||!r->range_draw_proc)return;
+    const char *ext=(const char*)glGetString(GL_EXTENSIONS);
+    if(!ext||!strstr(ext,"GL_EXT_buffer_storage")){fprintf(stderr,"[d3d8] GPU ring unavailable: no GL_EXT_buffer_storage\n");return;}
+    D8BufferStorageProc storage=(D8BufferStorageProc)SDL_GL_GetProcAddress("glBufferStorageEXT");
+    D8MapRangeProc map=(D8MapRangeProc)SDL_GL_GetProcAddress("glMapBufferRange");
+    ring_fence_sync=(D8FenceSyncProc)SDL_GL_GetProcAddress("glFenceSync");
+    ring_wait_sync=(D8ClientWaitSyncProc)SDL_GL_GetProcAddress("glClientWaitSync");
+    ring_delete_sync=(D8DeleteSyncProc)SDL_GL_GetProcAddress("glDeleteSync");
+    if(!storage||!map||!ring_fence_sync||!ring_wait_sync||!ring_delete_sync)return;
+    while(glGetError()!=GL_NO_ERROR){}
+    GLuint b;glGenBuffers(1,&b);bind_array_buffer(r,b);
+    const GLbitfield flags=0x0002|0x0040|0x0080; /* WRITE | PERSISTENT_EXT | COHERENT_EXT */
+    storage(GL_ARRAY_BUFFER,(GLsizeiptr)(3u*RING_SEGMENT),NULL,flags);
+    void *m=glGetError()==GL_NO_ERROR?map(GL_ARRAY_BUFFER,0,(GLsizeiptr)(3u*RING_SEGMENT),flags):NULL;
+    if(!m||glGetError()!=GL_NO_ERROR){glDeleteBuffers(1,&b);r->bound_array=0;while(glGetError()!=GL_NO_ERROR){}fprintf(stderr,"[d3d8] GPU ring unavailable: map failed\n");return;}
+    r->gpu_ring.buffer=b;r->gpu_ring.map=m;r->gpu_ring.segment=RING_SEGMENT;r->gpu_ring.index=0;
+    r->gpu_ring.pos=0;r->gpu_ring.end=RING_SEGMENT;r->gpu_ring.on=1;
+    fprintf(stderr,"[d3d8] GPU streaming ring enabled (3 x %u MiB, persistent)\n",RING_SEGMENT>>20);
+}
+static void gpu_ring_next_frame(D8Renderer *r){
+    if(!r->gpu_ring.on)return;
+    unsigned i=r->gpu_ring.index;
+    if(r->gpu_ring.fence[i])ring_delete_sync(r->gpu_ring.fence[i]);
+    r->gpu_ring.fence[i]=ring_fence_sync(0x9117 /* GL_SYNC_GPU_COMMANDS_COMPLETE */,0);
+    i=(i+1)%3;r->gpu_ring.index=i;
+    if(r->gpu_ring.fence[i]){
+        GLenum st=ring_wait_sync(r->gpu_ring.fence[i],0,0);
+        if(st!=0x911A&&st!=0x911C){r->gpu_ring.waits++;ring_wait_sync(r->gpu_ring.fence[i],0x00000001 /* FLUSH */,1000000000ull);}
+        ring_delete_sync(r->gpu_ring.fence[i]);r->gpu_ring.fence[i]=NULL;
+    }
+    r->gpu_ring.pos=(size_t)i*r->gpu_ring.segment;r->gpu_ring.end=r->gpu_ring.pos+r->gpu_ring.segment;
+    if(r->perf_enabled&&r->gpu_ring.draws&&(r->gpu_ring.draws%50000)<500)fprintf(stderr,"[gpu-ring] draws=%llu fallbacks=%llu waits=%llu\n",(unsigned long long)r->gpu_ring.draws,(unsigned long long)r->gpu_ring.fallbacks,(unsigned long long)r->gpu_ring.waits);
+}
+/* Reserve vertex (stride-aligned, for the base vertex) and index space in
+ * the current segment. Returns 0 when the segment is full (caller falls back). */
+static int gpu_ring_reserve(D8Renderer *r,size_t stride,size_t vertex_bytes,size_t index_bytes,size_t *voff,size_t *ioff){
+    size_t v=(r->gpu_ring.pos+stride-1)/stride*stride;size_t i=(v+vertex_bytes+3)&~(size_t)3;
+    if(i+index_bytes>r->gpu_ring.end){r->gpu_ring.fallbacks++;return 0;}
+    *voff=v;*ioff=i;r->gpu_ring.pos=i+index_bytes;r->gpu_ring.draws++;return 1;
 }
 static void bind_element_buffer(D8Renderer *r,GLuint buffer){
     bind_owner_begin(r);
@@ -315,6 +372,7 @@ int d8_renderer_init(D8Renderer *r) {
     r->range_draw_proc=(D8RangeDrawProc)SDL_GL_GetProcAddress("glDrawRangeElementsBaseVertex");
     r->invalidate_proc=(D8InvalidateProc)SDL_GL_GetProcAddress("glInvalidateFramebuffer");
     {const char *rd=setting("DS_RANGE_DRAW");r->range_draw_enabled=r->range_draw_proc&&!(rd&&!strcmp(rd,"0"));if(r->range_draw_enabled)fprintf(stderr,"[d3d8] ranged base-vertex draws enabled\n");}
+    if(r->gpu_program)gpu_ring_init(r);
     {const char *ae=setting("DS_ALPHA_ELIDE");r->alpha_elide=!(ae&&!strcmp(ae,"0"));}
     {const char *inv=setting("DS_INVALIDATE_DEPTH");r->invalidate_depth=r->invalidate_proc&&!(inv&&!strcmp(inv,"0"));}
     GLint ok;glGetProgramiv(r->program,GL_LINK_STATUS,&ok);if(!ok){glDeleteShader(v);glDeleteShader(f);return -1;}
@@ -656,7 +714,20 @@ static int gpu_prepare(D8Renderer *r,const D8State *s,unsigned n,const void *dat
   * calls). Only the non-native path has anything to pack. */
  int combo=r->one_upload&&indices&&!(native&&(native->vertex||native->index));
  GLuint attribute_buffer;size_t attribute_offset_base=attribute_base;
- if(native&&native->vertex){bind_array_buffer(r,native->vertex);r->uploads.native_vertex_draws++;attribute_buffer=native->vertex;}
+ size_t ring_voff=0,ring_ioff=0;r->gpu_array_first=0;
+ int ring=r->gpu_ring.on&&!(native&&(native->vertex||native->index))&&
+          gpu_ring_reserve(r,stride,vertex_bytes,index_bytes,&ring_voff,&ring_ioff);
+ if(ring){
+     memcpy(r->gpu_ring.map+ring_voff,(const char*)data+((size_t)base+first)*stride,vertex_bytes);
+     if(index_bytes)memcpy(r->gpu_ring.map+ring_ioff,uploaded_indices,index_bytes);
+     bind_array_buffer(r,r->gpu_ring.buffer);
+     d8_renderer_note_buffer_upload(r,0,vertex_bytes);if(index_bytes)d8_renderer_note_buffer_upload(r,1,index_bytes);
+     attribute_buffer=r->gpu_ring.buffer;attribute_offset_base=0;
+     if(indices){r->gpu_index_offset=ring_ioff;r->range_base=(GLint)(ring_voff/stride);}
+     else r->gpu_array_first=(GLint)(ring_voff/stride);
+     combo=0;
+ }
+ else if(native&&native->vertex){bind_array_buffer(r,native->vertex);r->uploads.native_vertex_draws++;attribute_buffer=native->vertex;}
  else if(combo){
      size_t need=vertex_bytes+index_bytes;
      if(r->combo_capacity<need){void *p=realloc(r->combo_staging,need);if(!p)return reject("GPU one-upload staging allocation failed: %zu bytes",need);r->combo_staging=p;r->combo_capacity=need;}
@@ -679,7 +750,8 @@ static int gpu_prepare(D8Renderer *r,const D8State *s,unsigned n,const void *dat
  size_t offsets[8];unsigned dims[8];for(unsigned i=0;i<tc;i++){unsigned d=(s->fvf>>(16+2*i))&3;dims[i]=d==0?2:d==1?3:d==2?4:1;offsets[i]=off;off+=dims[i]*4;}
  for(int t=0;t<2;t++){if((unsigned)t>=stages){gpu_constant(r,4+t,0,0,0,0);continue;}unsigned ix=s->tss[t][11]&65535;if(ix>=8)return reject("GPU invalid texcoord index stage %d index %u",t,ix);if(ix<tc)gpu_attribute(r,4+t,dims[ix],GL_FLOAT,0,stride,attribute_offset_base+offsets[ix],attribute_buffer);else gpu_constant(r,4+t,0,0,0,0);}
  if(indices){
-   if(combo){bind_element_buffer(r,r->gpu_combo);}
+   if(ring){bind_element_buffer(r,r->gpu_ring.buffer);}
+   else if(combo){bind_element_buffer(r,r->gpu_combo);}
    else if(native&&native->index){bind_element_buffer(r,native->index);r->uploads.native_index_draws++;}
    else{bind_element_buffer(r,r->gpu_ibo);glBufferData(GL_ELEMENT_ARRAY_BUFFER,index_bytes,uploaded_indices,GL_STREAM_DRAW);d8_renderer_note_buffer_upload(r,1,index_bytes);}
  }return 0;
@@ -868,7 +940,7 @@ int d8_renderer_draw_native(D8Renderer *r,const D8State *s,unsigned th,unsigned 
         GLenum it=isize==2?GL_UNSIGNED_SHORT:GL_UNSIGNED_INT;void *ip=(void*)(native&&native->index?native->index_offset:r->gpu_index_offset);
         if(r->range_draw_enabled&&r->range_draw_proc&&!render_thread_active()){r->range_draw_proc(modes[primitive],r->range_start,r->range_end,n,it,ip,r->range_base);r->gl_stats.range_draws++;}
         else glDrawElements(modes[primitive],n,it,ip);
-    } else glDrawArrays(modes[primitive],array_first,n);r->gl_stats.draws++;GLenum e=0;if(--r->draw_error_countdown==0){r->draw_error_countdown=r->draw_error_interval;r->gl_stats.error_checks++;e=glGetError();}if(e){r->gl_stats.error_detections++;d8_renderer_invalidate_raster(r);d8_renderer_invalidate_attributes(r);d8_renderer_invalidate_texture_parameters(r);d8_renderer_invalidate_bindings(r);r->small_uniforms.valid=0;gpu_small_cache(r)->valid=0;gpu_large_cache(r)->valid=0;return reject("GL draw error %#x",e);}return 0;
+    } else glDrawArrays(modes[primitive],gpu?r->gpu_array_first:array_first,n);r->gl_stats.draws++;GLenum e=0;if(--r->draw_error_countdown==0){r->draw_error_countdown=r->draw_error_interval;r->gl_stats.error_checks++;e=glGetError();}if(e){r->gl_stats.error_detections++;d8_renderer_invalidate_raster(r);d8_renderer_invalidate_attributes(r);d8_renderer_invalidate_texture_parameters(r);d8_renderer_invalidate_bindings(r);r->small_uniforms.valid=0;gpu_small_cache(r)->valid=0;gpu_large_cache(r)->valid=0;return reject("GL draw error %#x",e);}return 0;
 }
 
 void d8_renderer_invalidate_depth(D8Renderer *r, int offscreen){
