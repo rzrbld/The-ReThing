@@ -45,6 +45,7 @@ JOBS=4 bash scripts/build_distribution.sh \
 The command prepares the public SDK, extracts your ISO, applies patch 1.1 then
 1.2, selects the verified executable, translates the main EXE and all level DLLs,
 compiles the base game, generates and applies the selected production optimizations,
+builds the release executable with fixed guest registers (see *Register models*),
 and builds the ARM launcher and native audio library. It downloads the installer
 tools, packages the port and runs launcher/configuration/package checks.
 
@@ -59,12 +60,13 @@ Outputs include:
 - `docs/evidence/patched-v12.json`: hashes of the prepared game files.
 - `build/translated/`: regenerated game code; keep it private.
 - `build/game/thething.aarch64`: baseline executable and per-unit compiler logs.
-- `build/early-queue-combined-aarch64-20261103/thething-queue-bounds.aarch64`:
+- `build/game/c1-fixed/thething.aarch64`: optimized release executable with symbols.
+- `build/c1-fixed-combined-aarch64-20261106/thething-c1-fixed.aarch64`:
   stripped optimized executable used by the package.
 - `build/launcher/thething-launcher.aarch64` and
   `build/native-vorbis-arm/probe.aarch64.so`.
 
-The date in the optimized directory is retained for script compatibility.
+The dates in the optimized directory names are retained for script compatibility.
 The package excludes original game inputs, generated code, saves and user settings.
 
 ## Public toolchain and target firmware
@@ -106,8 +108,8 @@ python3 -u scripts/translate_game.py --all-modules
 bash scripts/build_game.sh aarch64 --allow-traps --local-regs \
   --translated-opt=-O2 --render-thread --jobs "$JOBS"
 python3 scripts/generate_optimization_data.py
-python3 scripts/build_optimized_game.py --target=aarch64
-bash scripts/strip_optimized_game.sh
+python3 scripts/build_optimized_game.py --target=aarch64 --fixed-regs
+bash scripts/strip_optimized_game.sh --fixed-regs
 bash scripts/build_launcher.sh aarch64
 bash scripts/build_launcher.sh host
 python3 scripts/fetch_audio_sources.py
@@ -116,7 +118,7 @@ docker run --rm --network none --read-only --tmpfs /tmp \
   --workdir /src "$CROSS_IMAGE" bash scripts/build_vorbis_arm_codec.sh
 python3 scripts/prepare_installer_tools.py
 python3 scripts/package_portmaster.py \
-  --game build/early-queue-combined-aarch64-20261103/thething-queue-bounds.aarch64 \
+  --game build/c1-fixed-combined-aarch64-20261106/thething-c1-fixed.aarch64 \
   --output "$PWD/dist/the_rething.zip"
 python3 scripts/check_portmaster_package.py --archive "$PWD/dist/the_rething.zip"
 ```
@@ -125,27 +127,44 @@ python3 scripts/check_portmaster_package.py --archive "$PWD/dist/the_rething.zip
 paths. It does not implement them. The render-worker capability is compiled,
 while the production launcher defaults to SINGLE rendering and buffer cache OFF.
 
-## Fixed guest registers (optional, faster)
+## Register models
 
-`--fixed-regs` builds the same optimized game with the eight x86 guest
-registers held in AArch64 registers x19..x26 for the whole run, instead of
-copying them to and from memory around every translated call. After the base
-build and `generate_optimization_data.py` above:
+Releases use **fixed guest registers** (`--fixed-regs`): the eight x86 guest
+registers stay in AArch64 registers x19..x26 for the whole run instead of being
+copied to and from memory around every translated call. The base build always
+uses `--local-regs`; `build_optimized_game.py --fixed-regs` then compiles the
+optimized composition with fixed registers into its own output root
+(`build/game/c1-fixed`), leaving the base build and its object cache unchanged.
+Guest `longjmp` is not supported in this mode and stops with a clear error; no
+translated code uses it today.
 
-```bash
-python3 scripts/build_optimized_game.py --target=aarch64 --fixed-regs
-bash scripts/strip_optimized_game.sh --fixed-regs
-python3 scripts/package_portmaster.py \
-  --game build/c1-fixed-combined-aarch64-20261106/thething-c1-fixed.aarch64 \
-  --output "$PWD/dist/the_rething.zip"
+The previous local-register optimized executable can still be built, for
+comparison or troubleshooting, after the base build:
+
+```sh
+python3 scripts/build_optimized_game.py --target=aarch64
+bash scripts/strip_optimized_game.sh
+# -> build/early-queue-combined-aarch64-20261103/thething-queue-bounds.aarch64
 ```
 
-It uses a separate output root (`build/game/c1-fixed`), so the default build
-and its object cache are not changed. On an H700 (1.8 GHz) a heavy level-1 view
-with about 410 draws per frame went from 39.7 ms to 35.0 ms per frame
-(about 25 to 28.5 FPS); light views improve by about 1.5 ms of CPU time.
-Guest `longjmp` is not supported in this mode and stops with a clear error;
-no translated code uses it today.
+On an H700 (1.8 GHz), a heavy level-1 view with about 410 draws per frame took
+39.7 ms per frame with local registers and 35.0 ms with fixed registers.
+
+## Runtime renderer features
+
+These need no build options; they are part of every build:
+
+- **Shader cache.** Compiled GPU-path shader programs are saved as driver
+  binaries in `userdata/shader-cache` on the handheld and prebuilt at the next
+  start, so a shader first needed in play is compiled only once.
+  `THING_SHADER_CACHE=0` disables it.
+- **GPU streaming ring.** Per-draw geometry is copied into one persistently
+  mapped buffer split into fenced per-frame segments instead of a buffer upload
+  per draw. It needs `GL_EXT_buffer_storage` and falls back automatically;
+  `THING_GPU_RING=0` disables it. In the same H700 view this reduced frame time
+  from 35.4 to 32.5 ms.
+
+Both are off with the THREADED renderer, which is not recommended on H700.
 
 ## Generated optimization data
 
@@ -166,8 +185,8 @@ No earlier release objects or profiling logs are used.
 Inspect the actual optimized ELF, not just the baseline:
 
 ```sh
-readelf -h build/early-queue-combined-aarch64-20261103/thething-queue-bounds.aarch64
-readelf -d build/early-queue-combined-aarch64-20261103/thething-queue-bounds.aarch64
+readelf -h build/c1-fixed-combined-aarch64-20261106/thething-c1-fixed.aarch64
+readelf -d build/c1-fixed-combined-aarch64-20261106/thething-c1-fixed.aarch64
 python3 scripts/check_launcher_settings.py
 python3 scripts/check_portmaster_launch.py
 ```
@@ -179,6 +198,9 @@ Test gameplay, rendering, saving/loading, audio and controls on the actual devic
 before claiming hardware compatibility or a frame-rate target.
 
 ## Verification record (2026-11-03)
+
+This record covers the earlier package, which used the local-register optimized
+executable; the full build now packages the fixed-register executable.
 
 Two isolated source directories regenerated the game from the supported ISO,
 without existing translations, objects, SDK directories, audio sources, installer

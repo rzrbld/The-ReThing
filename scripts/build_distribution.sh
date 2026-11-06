@@ -32,8 +32,9 @@ docker run --rm --network none --read-only --tmpfs /tmp --user "$(id -u):$(id -g
   --workdir /src "$CROSS_IMAGE" python3 scripts/prepare_v12.py
 python3 -u scripts/translate_game.py --all-modules
 bash scripts/build_game.sh aarch64 --allow-traps --local-regs --translated-opt=-O2 --render-thread --jobs "$JOBS"
-python3 scripts/build_optimized_game.py --target=aarch64
-bash scripts/strip_optimized_game.sh
+# Release configuration: optimized composition with fixed guest registers (C1).
+python3 scripts/build_optimized_game.py --target=aarch64 --fixed-regs
+bash scripts/strip_optimized_game.sh --fixed-regs
 bash scripts/build_launcher.sh aarch64
 bash scripts/build_launcher.sh host
 python3 scripts/fetch_audio_sources.py
@@ -44,6 +45,6 @@ python3 scripts/prepare_installer_tools.py
 python3 scripts/check_launcher_settings.py
 python3 scripts/check_portmaster_launch.py
 python3 scripts/package_portmaster.py \
-  --game build/early-queue-combined-aarch64-20261103/thething-queue-bounds.aarch64 --output "$output"
+  --game build/c1-fixed-combined-aarch64-20261106/thething-c1-fixed.aarch64 --output "$output"
 python3 scripts/check_portmaster_package.py --archive "$output"
 echo "Built and checked $output. Hardware gameplay still requires testing."
