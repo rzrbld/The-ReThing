@@ -23,7 +23,11 @@ Blocked options cannot be changed in the current renderer mode. Their saved
 preferences return when switching to a compatible mode.
 
 The renderer uses smaller shader outputs for eligible draws and prebuilds common
-shader variants. The 512x384 path uses the correct framebuffer attachment enums.
+shader variants. Compiled shaders are kept in `userdata/shader-cache`: a shader
+first needed during play (turning round, looking into another room) is compiled
+once, about 0.2 s on H700, and is loaded in under a millisecond at every later
+start, so areas already visited do not hitch. Deleting the folder is safe; it
+is rebuilt as you play. `THING_SHADER_CACHE=0` disables it. The 512x384 path uses the correct framebuffer attachment enums.
 The material-state optimization bypasses only already-satisfied render-state
 setup; textures, resources and geometry submission still execute normally.
 

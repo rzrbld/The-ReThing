@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <sys/stat.h>
 /* SDL is linked into the game; declare the two GLES3 entry-point lookups we need
  * without pulling SDL headers into this translation unit. */
 extern void *SDL_GL_GetProcAddress(const char *name);
@@ -168,7 +169,80 @@ static const char *FS_CODE_FAST=
     "float f=1.;if(fogmode==4)f=fd;else if(fogmode==1)f=exp(-fogparam.z*fd);else if(fogmode==2)f=exp(-pow(fogparam.z*fd,2.));else if(fogmode==3)f=(fogparam.y-fd)/max(.0001,fogparam.y-fogparam.x);cur.rgb=mix(fogcolor.rgb,cur.rgb,clamp(f,0.,1.));gl_FragColor=cur;}";
 static const char *FS_GENERIC_HEAD_FAST=
     "uniform sampler2D tex0;uniform sampler2D tex1;uniform bool has0;uniform bool has1;uniform ivec4 cop0;uniform ivec4 aop0;uniform ivec4 cop1;uniform ivec4 aop1;uniform vec4 factor;uniform int afunc;uniform float aref;uniform int fogmode;uniform vec4 fogcolor;uniform vec3 fogparam;uniform bool specular;";
-static GLuint build_frag_shader_source(char *out,size_t cap,uint64_t key){
+/* ---- Persistent shader cache ---------------------------------------------
+ * A fragment variant costs 190-295 ms to compile and link on the Mali-G31
+ * driver, and variants are first needed mid-game (turning round, looking into
+ * another room), which shows as a visible hitch. Each linked GPU-path variant
+ * program is saved as a driver binary in <dir>/<hash>.bin, where the hash
+ * covers the exact vertex+fragment source and the GL renderer/version
+ * strings, so any shader or driver change simply misses. Every key built is
+ * also appended to <dir>/keys.txt and prebuilt at the next startup, so places
+ * already visited never compile again. Directory: DS_SHADER_CACHE, default
+ * $THING_ROOT/userdata/shader-cache; DS_SHADER_CACHE=0 disables. */
+typedef void (*D8GetProgramBinaryProc)(GLuint,GLsizei,GLsizei*,GLenum*,void*);
+typedef void (*D8ProgramBinaryProc)(GLuint,GLenum,const void*,GLsizei);
+typedef void (*D8ProgramParameteriProc)(GLuint,GLenum,GLint);
+static struct {int on;char dir[512];uint64_t salt;D8GetProgramBinaryProc get;D8ProgramBinaryProc load;D8ProgramParameteriProc param;} shader_cache;
+static uint64_t fnv1a(const void *data,size_t n,uint64_t h){const unsigned char *b=data;for(size_t i=0;i<n;i++){h^=b[i];h*=0x100000001b3ULL;}return h;}
+static void shader_cache_init(void){
+    const char *dir=setting("DS_SHADER_CACHE"),*root=getenv("THING_ROOT"),*rt=setting("DS_RENDER_THREAD");
+    if(dir&&(!strcmp(dir,"0")||!*dir))return;
+    if(rt&&strcmp(rt,"0"))return; /* GLES3 entry points are not proxied to the render worker */
+    if(dir)snprintf(shader_cache.dir,sizeof shader_cache.dir,"%s",dir);
+    else if(root&&*root)snprintf(shader_cache.dir,sizeof shader_cache.dir,"%s/userdata/shader-cache",root);
+    else return;
+    shader_cache.get=(D8GetProgramBinaryProc)SDL_GL_GetProcAddress("glGetProgramBinary");
+    shader_cache.load=(D8ProgramBinaryProc)SDL_GL_GetProcAddress("glProgramBinary");
+    shader_cache.param=(D8ProgramParameteriProc)SDL_GL_GetProcAddress("glProgramParameteri");
+    GLint formats=0;glGetIntegerv(0x87FE /* GL_NUM_PROGRAM_BINARY_FORMATS */,&formats);
+    if(!shader_cache.get||!shader_cache.load||formats<1){fprintf(stderr,"[d3d8-shader] program binaries unavailable; cache off\n");return;}
+    char parent[600];snprintf(parent,sizeof parent,"%s",shader_cache.dir);char *slash=strrchr(parent,'/');
+    if(slash){*slash=0;mkdir(parent,0755);}mkdir(shader_cache.dir,0755);
+    uint64_t h=0xcbf29ce484222325ULL;const char *gl[]={(const char*)glGetString(GL_RENDERER),(const char*)glGetString(GL_VERSION)};
+    for(int i=0;i<2;i++)if(gl[i])h=fnv1a(gl[i],strlen(gl[i]),h);
+    shader_cache.salt=h;shader_cache.on=1;
+    fprintf(stderr,"[d3d8-shader] persistent cache %s\n",shader_cache.dir);
+}
+static void shader_cache_retrievable(GLuint program){
+    if(shader_cache.on&&shader_cache.param)shader_cache.param(program,0x8257 /* GL_PROGRAM_BINARY_RETRIEVABLE_HINT */,GL_TRUE);
+}
+static uint64_t shader_cache_hash(const char *vs,const char *fs){
+    uint64_t h=fnv1a(vs,strlen(vs),shader_cache.salt);h=fnv1a("\n--\n",4,h);return fnv1a(fs,strlen(fs),h);
+}
+static GLuint shader_cache_load(uint64_t hash){
+    if(!shader_cache.on)return 0;
+    char path[640];snprintf(path,sizeof path,"%s/%016llx.bin",shader_cache.dir,(unsigned long long)hash);
+    FILE *f=fopen(path,"rb");if(!f)return 0;
+    uint32_t format=0,length=0;void *blob=NULL;GLuint program=0;
+    if(fread(&format,4,1,f)==1&&fread(&length,4,1,f)==1&&length>0&&length<(32u<<20)&&(blob=malloc(length))&&fread(blob,1,length,f)==length){
+        program=glCreateProgram();shader_cache.load(program,(GLenum)format,blob,(GLsizei)length);
+        GLint ok=0;glGetProgramiv(program,GL_LINK_STATUS,&ok);
+        if(!ok){glDeleteProgram(program);program=0;remove(path);}
+    }
+    free(blob);fclose(f);while(glGetError()!=GL_NO_ERROR){}
+    return program;
+}
+static void shader_cache_store(uint64_t hash,GLuint program){
+    if(!shader_cache.on||!program)return;
+    GLint length=0;glGetProgramiv(program,0x8741 /* GL_PROGRAM_BINARY_LENGTH */,&length);
+    if(length<=0){while(glGetError()!=GL_NO_ERROR){}return;}
+    void *blob=malloc((size_t)length);if(!blob)return;
+    GLenum format=0;GLsizei got=0;shader_cache.get(program,length,&got,&format,blob);
+    if(got>0){
+        char path[640],tmp[660];snprintf(path,sizeof path,"%s/%016llx.bin",shader_cache.dir,(unsigned long long)hash);
+        snprintf(tmp,sizeof tmp,"%s.tmp",path);
+        FILE *f=fopen(tmp,"wb");
+        if(f){uint32_t fmt=(uint32_t)format,len=(uint32_t)got;int ok=fwrite(&fmt,4,1,f)==1&&fwrite(&len,4,1,f)==1&&fwrite(blob,1,(size_t)got,f)==(size_t)got;
+            if(fclose(f)==0&&ok)rename(tmp,path);else remove(tmp);}
+    }
+    free(blob);while(glGetError()!=GL_NO_ERROR){}
+}
+static void shader_cache_note_key(uint64_t key){
+    if(!shader_cache.on)return;
+    char path[600];snprintf(path,sizeof path,"%s/keys.txt",shader_cache.dir);
+    FILE *f=fopen(path,"a");if(f){fprintf(f,"%016llx\n",(unsigned long long)key);fclose(f);}
+}
+static void frag_shader_text(char *out,size_t cap,uint64_t key){
     int stages=(int)(key&3u),has0=(int)((key>>2)&1u),spec=(int)((key>>4)&1u);
     unsigned cop0=(unsigned)((key>>5)&31u),aop0=(unsigned)((key>>10)&31u);
     unsigned c0y=(unsigned)((key>>15)&31u),c0z=(unsigned)((key>>20)&31u);
@@ -195,7 +269,6 @@ static GLuint build_frag_shader_source(char *out,size_t cap,uint64_t key){
         "const bool has0=%s;const bool has1=false;const bool specular=%s;"
         "const ivec4 cop0=ivec4(%u,%u,%u,0);const ivec4 aop0=ivec4(%u,%u,%u,0);const ivec4 cop1=ivec4(1,0,0,0);const ivec4 aop1=ivec4(1,0,0,0);"
         "%s",head,noalpha?"const int afunc=8;":"uniform int afunc;",has0?"true":"false",spec?"true":"false",cop0,c0y,c0z,aop0,a0y,a0z,code);
-    return shader(GL_FRAGMENT_SHADER,out);
 }
 static uint64_t frag_state_key(const D8State *s,const GLuint textures[2],unsigned stages,int alpha_elide){
     if(stages>1)return ~(uint64_t)0;
@@ -254,6 +327,7 @@ int d8_renderer_init(D8Renderer *r) {
     glDeleteShader(f);
     glGenBuffers(1,&r->vbo);
     const char *fen=setting("DS_FAST_SHADER");r->fast_shader_enabled=!(fen&&!strcmp(fen,"0"));
+    if(r->fast_shader_enabled)shader_cache_init();
     if(r->fast_shader_enabled){
         /* Pre-build the states the device draw-state histogram shows in normal
          * play (all use args texture/current; fog and alpha-test stay dynamic
@@ -290,7 +364,12 @@ int d8_renderer_init(D8Renderer *r) {
                 (k>>11)&31,(k>>16)&31,(k>>21)&31,(k>>26)&31,
                 (k>>31)&31,(k>>36)&31,0));
         }
-        fprintf(stderr,"[d3d8] fragment specialisation enabled (%u common variants prebuilt, max %d)\n",r->frag_count,DS_FRAG_VARIANTS);
+        /* Variants learned in earlier sessions (keys.txt): prebuilt now, from
+         * the binary cache when possible, instead of mid-game. */
+        if(shader_cache.on){char path[600];snprintf(path,sizeof path,"%s/keys.txt",shader_cache.dir);
+            FILE *f=fopen(path,"r");if(f){unsigned long long k;while(fscanf(f,"%llx",&k)==1&&r->frag_count<DS_FRAG_VARIANTS)(void)get_frag_variant(r,(uint64_t)k);fclose(f);}}
+        r->prewarmed=1;
+        fprintf(stderr,"[d3d8] fragment specialisation enabled (%u variants prebuilt, max %d)\n",r->frag_count,DS_FRAG_VARIANTS);
     }
     return 0;
 }
@@ -404,7 +483,7 @@ static void light_vertex(const D8State *s,const D8CpuLighting *cache,const float
 }
 /* Opt-in native FVF path. Matrices are row-major D3D matrices: uploading with
  * transpose=false gives the column-vector transpose required by GLSL. */
-static GLuint make_gpu_program(GLuint fragment,int has0,int has1,int spec){
+static void gpu_vs_source(char *srcbuf,size_t cap,int has0,int has1,int spec){
  const char *src=
  "%s"
  "precision highp float;attribute vec4 p;attribute vec3 normal;attribute vec4 color;attribute vec4 spec;\n"
@@ -435,13 +514,16 @@ static GLuint make_gpu_program(GLuint fragment,int has0,int has1,int spec){
  "float nd=max(0.,dot(n,l));c+=att*(a.yzw*md.rgb*nd+c0.yzw*ma.rgb);if(g.z!=0.&&nd>0.)highlight+=att*b.yzw*ms.rgb*pow(max(0.,dot(n,norm(l+e))),power);"
  "}dc=clamp(vec4(c%s,md.a),0.,1.);\n"
  "#ifdef VS_SPEC\nsc=clamp(vec4(highlight,spec.a),0.,1.);\n#endif\n}}}";
- char srcbuf[8192];
  char defs[128];
  snprintf(defs,sizeof defs,"%s%s%s",has0?"#define VS_HAS0\n":"",has1?"#define VS_HAS1\n":"",spec?"#define VS_SPEC\n":"");
- snprintf(srcbuf,sizeof srcbuf,src,defs,"",
+ snprintf(srcbuf,cap,src,defs,"",
           "",
           "");
+}
+static GLuint make_gpu_program(GLuint fragment,int has0,int has1,int spec){
+ char srcbuf[8192];gpu_vs_source(srcbuf,sizeof srcbuf,has0,has1,spec);
  GLuint v=shader(GL_VERTEX_SHADER,srcbuf);if(!v)return 0;GLuint p=glCreateProgram();glAttachShader(p,v);glAttachShader(p,fragment);
+ shader_cache_retrievable(p);
  const char *attrs[]={"p","normal","color","spec","uv0","uv1"};for(int i=0;i<6;i++)glBindAttribLocation(p,i,attrs[i]);glLinkProgram(p);glDeleteShader(v);GLint ok;glGetProgramiv(p,GL_LINK_STATUS,&ok);if(!ok){char msg[2048];glGetProgramInfoLog(p,sizeof msg,NULL,msg);fprintf(stderr,"[d3d8] GPU vertex link: %s\n",msg);glDeleteProgram(p);return 0;}return p;
 }
 static void attributes_begin(D8Renderer *r){
@@ -641,19 +723,35 @@ static int get_frag_variant(D8Renderer *r,uint64_t key){
     if(!r->fast_shader_enabled||key==~(uint64_t)0)return -1;
     for(unsigned i=0;i<r->frag_count;i++)if(r->frag_variants[i].key==key)return (int)i;
     if(r->frag_count>=DS_FRAG_VARIANTS)return -1;
-    char src[4096];GLuint fr=build_frag_shader_source(src,sizeof src,key);
-    if(!fr)return -1;
-    GLuint cpu=glCreateProgram();glAttachShader(cpu,r->shared_vs);glAttachShader(cpu,fr);
-    static const char *attrs[]={"p","c","spec","uv0","uv1","fog"};
-    for(int i=0;i<6;i++)glBindAttribLocation(cpu,(GLuint)i,attrs[i]);
-    glLinkProgram(cpu);GLint ok;glGetProgramiv(cpu,GL_LINK_STATUS,&ok);
-    GLuint gpu=0;
-    if(ok&&r->gpu_path_enabled){gpu=make_gpu_program(fr,(int)((key>>2)&1u),0,1); /* sc stays written: cheap, and avoids any variant path reading an unwritten varying */if(!gpu)ok=0;}
-    if(!ok){glDeleteProgram(cpu);glDeleteShader(fr);return -1;}
+    struct timespec build_t0,build_t1;clock_gettime(CLOCK_MONOTONIC,&build_t0);
+    char src[4096];frag_shader_text(src,sizeof src,key);
+    GLuint fr=0,cpu=0,gpu=0;GLint ok=1;int cached=0;uint64_t hash=0;
+    if(r->gpu_path_enabled){
+        /* With the GPU vertex path on, a variant's CPU-path program is never
+         * selected (select_fragment_program uses the generic program for CPU
+         * draws), so only the GPU program is built: half the link cost. */
+        char vs[8192];gpu_vs_source(vs,sizeof vs,(int)((key>>2)&1u),0,1);
+        hash=shader_cache_hash(vs,src);gpu=shader_cache_load(hash);cached=gpu!=0;
+        if(!gpu){fr=shader(GL_FRAGMENT_SHADER,src);if(!fr)return -1;
+            gpu=make_gpu_program(fr,(int)((key>>2)&1u),0,1); /* sc stays written: cheap, and avoids any variant path reading an unwritten varying */
+            if(!gpu){glDeleteShader(fr);return -1;}
+            shader_cache_store(hash,gpu);}
+    }else{
+        fr=shader(GL_FRAGMENT_SHADER,src);if(!fr)return -1;
+        cpu=glCreateProgram();glAttachShader(cpu,r->shared_vs);glAttachShader(cpu,fr);
+        static const char *attrs[]={"p","c","spec","uv0","uv1","fog"};
+        for(int i=0;i<6;i++)glBindAttribLocation(cpu,(GLuint)i,attrs[i]);
+        glLinkProgram(cpu);glGetProgramiv(cpu,GL_LINK_STATUS,&ok);
+        if(!ok){glDeleteProgram(cpu);glDeleteShader(fr);return -1;}
+    }
     unsigned idx=r->frag_count++;
+    clock_gettime(CLOCK_MONOTONIC,&build_t1);
+    if(r->prewarmed)shader_cache_note_key(key);
+    fprintf(stderr,"[d3d8-shader] %s variant %u key=%016llx in %.1f ms\n",cached?"loaded":"built",idx,(unsigned long long)key,
+            (build_t1.tv_sec-build_t0.tv_sec)*1e3+(build_t1.tv_nsec-build_t0.tv_nsec)/1e6);
     r->frag_variants[idx].key=key;r->frag_variants[idx].fragment=fr;
     r->frag_variants[idx].cpu_program=cpu;r->frag_variants[idx].gpu_program=gpu;
-    cache_uniform_locations(cpu,&r->frag_variants[idx].uniforms);
+    if(cpu)cache_uniform_locations(cpu,&r->frag_variants[idx].uniforms);else r->frag_variants[idx].uniforms=r->generic_uniforms;
     if(gpu)cache_uniform_locations(gpu,&r->frag_variants[idx].gpu_uniforms);
     {const char*e=setting("DS_DBG_LOC");if(e&&!strcmp(e,"1"))fprintf(stderr,"[dbg-build] idx=%u key=%016llx frag=%u cpu=%u gpu=%u cpu_normalmat=%d gpu_normalmat=%d gpu_fogcolor=%d\n",idx,(unsigned long long)key,fr,cpu,gpu,r->frag_variants[idx].uniforms.normalmat,r->frag_variants[idx].gpu_uniforms.normalmat,r->frag_variants[idx].gpu_uniforms.fogcolor);}
     /* cache_uniform_locations() binds the program to set sampler units; the

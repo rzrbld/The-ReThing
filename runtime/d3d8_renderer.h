@@ -91,7 +91,7 @@ typedef struct { D8AttributeCache attributes; D8TextureParameters texture_parame
      * path disappear. Remaining uniforms (factor, alpha test, fog) stay.
      * DS_FAST_SHADER=0 keeps the generic program. DS_SHADER_STATS=1 prints the
      * draw-state histogram. */
-#define DS_FRAG_VARIANTS 24
+#define DS_FRAG_VARIANTS 64
     uint32_t fast_shader_enabled;
     uint64_t fast_draws;
     GLuint shared_vs,gpu_path_enabled;
@@ -105,6 +105,7 @@ typedef struct { D8AttributeCache attributes; D8TextureParameters texture_parame
         D8UniformLocations uniforms,gpu_uniforms;
     } frag_variants[DS_FRAG_VARIANTS];
     unsigned frag_count;
+    int prewarmed; /* startup prebuild finished: new keys are recorded */
     int active_frag; /* -1 = generic program */
     D8SmallUniformCache frag_small[DS_FRAG_VARIANTS],frag_gpu_small[DS_FRAG_VARIANTS];
     D8GpuUploadCache frag_uploaded[DS_FRAG_VARIANTS];
