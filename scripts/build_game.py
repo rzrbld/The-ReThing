@@ -110,7 +110,8 @@ def main():
     else:
         include += [ROOT/'build/sdk-include', ROOT/'build/sdk-include/SDL2', Path('/usr/include/SDL2')]
         flags += ['-mcpu=cortex-a53']
-        link += [f'-L{ROOT}/build/mali-link', f'-L{ROOT}/build/target-libs', '-Wl,--allow-shlib-undefined', '-lSDL2', '-lSDL2_ttf', '-lGLESv2']
+        link += [f'-L{ROOT}/build/mali-link', f'-L{ROOT}/build/target-libs', '-Wl,--allow-shlib-undefined', '-lSDL2', '-lSDL2_ttf']
+        # No GPU library: runtime/gles_dispatch.c resolves GLES through SDL.
     flags += [f'-I{x}' for x in include]
     # C1 fixed-register model: the guest GPR file lives in AArch64 callee-saved
     # registers x19..x26. Every translation unit (lifted code and native runtime

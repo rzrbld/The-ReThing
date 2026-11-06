@@ -44,8 +44,9 @@ belong to The ReThing.
 
 ## Requirements and settings
 
-This build targets **AArch64 H700 firmware with proprietary Mali GLES**.
-Requires glibc 2.36+, Bash, firmware SDL2, SDL2_ttf, and `libmali.so.0`.
+This build targets **AArch64 H700 firmware**; it is tested with the Mali-G31 GLES driver.
+Requires glibc 2.36+, Bash, firmware SDL2, SDL2_ttf and an OpenGL ES 3.x driver that
+SDL2 can load. The game links no GPU library; other drivers may start but are untested.
 It is not a universal Panfrost/Adreno/ARM32 build. No firmware GPU/SDL library is
 installed or overridden. Bundled extraction tools use their own private loader
 and libraries; that library path is never exported to the game or launcher.

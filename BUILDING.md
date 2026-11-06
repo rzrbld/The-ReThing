@@ -77,12 +77,16 @@ pinned by digest; Debian package updates can change final binary hashes.
 Desert Storm, `DESERT_STORM_SDK`, or an unpublished compiler image.
 
 SDK headers and link libraries are generated in `build/sdk-include/` and
-`build/target-libs/`. A **link-only** GLES ABI stub in `build/mali-link/` is
-built from the public GLES symbol list and records the target `libmali.so.0`
-SONAME. This stub is never packaged or used to run the game. The handheld must
-supply the real driver, SDL2, SDL2_ttf, and compatible AArch64 glibc (2.36+).
-Existing target libraries are preserved for explicit firmware SDK builds;
-the clean build uses only public Debian libraries and the generated link stub.
+`build/target-libs/`. The game executable links **no GPU library**:
+`runtime/gles_dispatch.c` defines every GLES entry point the port uses and
+resolves it through `SDL_GL_GetProcAddress` in the current SDL context, so the
+driver is whatever the firmware's SDL2 loads. A GL function used by the port
+but missing from `probe/rt/*.def` is a link error. The link-only GLES stub that
+`prepare_cross.sh` still generates in `build/mali-link/` is not linked into the
+game and is never packaged. The handheld must supply SDL2 with an OpenGL ES 3.x
+driver, SDL2_ttf, and compatible AArch64 glibc (2.36+). Existing target
+libraries are preserved for explicit firmware SDK builds; the clean build uses
+only public Debian libraries.
 
 ## Individual stages
 

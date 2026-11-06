@@ -81,8 +81,10 @@ needs; other revisions are rejected. To check yours on a PC, run
 Open **RENDER OPTIONS** in the launcher for graphics controls. Options that
 require a different renderer are blocked; saved preferences are preserved.
 See [render options](docs/RENDER_OPTIONS.md).
-Requires AArch64 firmware, glibc 2.36+, Bash, SDL2, SDL2_ttf and `libmali.so.0`.
-Other GPU drivers and 32-bit firmware are not supported by this binary.
+Requires AArch64 firmware, glibc 2.36+, Bash, SDL2, SDL2_ttf and an OpenGL ES 3.x
+driver that SDL2 can load. The game does not link a GPU library; it has been
+tested on H700 with the Mali-G31 driver. Other drivers may start but are
+untested, and 32-bit firmware is not supported.
 
 ## Controls and saves
 
