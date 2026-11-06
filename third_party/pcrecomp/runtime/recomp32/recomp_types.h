@@ -39,6 +39,12 @@ static inline uint64_t __rdtsc(void) {
  * since most VC6 code uses FPO (Frame Pointer Omission).
  * ============================================================ */
 
+/* C1 fixed-register build (aarch64 --fixed-regs): the eight guest GPRs are
+ * AArch64 global register variables (x19..x26), declared by this header; there
+ * is no storage to declare. Every other build keeps them as ordinary globals. */
+#include "recomp_fixed_regs.h"
+
+#ifndef RECOMP_FIXED_REGS_ACTIVE
 /* Volatile (caller-saved) registers */
 extern uint32_t g_eax, g_ecx, g_edx, g_esp;
 
@@ -49,6 +55,7 @@ extern uint32_t g_eax, g_ecx, g_edx, g_esp;
  * Real x86 has one ebp; FPO functions that never touch it simply pass the
  * caller's through, which is exactly the behaviour we want. */
 extern uint32_t g_ebx, g_esi, g_edi, g_ebp;
+#endif
 
 /* The x87 FPU stack is GLOBAL (8 shared registers), not per-function: helpers
  * like __ftol receive their argument on the FPU stack from the caller, and the

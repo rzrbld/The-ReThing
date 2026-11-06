@@ -23,19 +23,29 @@ fi
 # --local-regs needs the fail-closed staged source tree (see stage_local_regs.py).
 local_regs=0
 for arg in "$@"; do [[ "$arg" == --local-regs ]] && local_regs=1; done
-if (( local_regs )); then
+# --fixed-regs (C1) compiles the same staged tree, but with the guest GPRs in
+# AArch64 x19..x26 instead of the local-register call-boundary sync.
+fixed_regs=0
+for arg in "$@"; do [[ "$arg" == --fixed-regs ]] && fixed_regs=1; done
+if (( fixed_regs && local_regs )); then
+  echo '--fixed-regs cannot be combined with --local-regs' >&2
+  exit 2
+fi
+if (( local_regs || fixed_regs )); then
   mkdir -p build/translated-local-regs
   python3 scripts/stage_local_regs.py build/translated-x87/*/functions_*.c \
     --output build/translated-local-regs
 fi
+extra_args=()
+(( fixed_regs )) && extra_args=(--translated-source-root build/translated-local-regs)
 if [[ "$target" == host ]]; then
-  exec python3 -u scripts/build_game.py --target host "$@"
+  exec python3 -u scripts/build_game.py --target host "$@" "${extra_args[@]}"
 elif [[ "$target" == aarch64 ]]; then
   mkdir -p build/game
   image=${CROSS_IMAGE:-rething-cross:bookworm}
   exec docker run --rm --network none --read-only --tmpfs /tmp \
     --user "$(id -u):$(id -g)" -v "$PWD:/src:ro" -v "$PWD/build/game:/src/build/game:rw" \
-    --workdir /src "$image" python3 -u scripts/build_game.py --target aarch64 "$@"
+    --workdir /src "$image" python3 -u scripts/build_game.py --target aarch64 "$@" "${extra_args[@]}"
 else
   echo 'target must be host or aarch64' >&2
   exit 2

@@ -24,8 +24,12 @@
 
 /* ------------------------------------------------------------ register file
  * recomp_types.h declares these extern; exactly one translation unit defines
- * them, and for a win32hle host that is here. (Mirrors native32.c.) */
+ * them, and for a win32hle host that is here. (Mirrors native32.c.)
+ * In the C1 fixed-register build they are AArch64 global register variables
+ * declared by recomp_fixed_regs.h, so there is no storage to define here. */
+#ifndef RECOMP_FIXED_REGS_ACTIVE
 uint32_t  g_eax, g_ecx, g_edx, g_esp, g_ebx, g_esi, g_edi, g_ebp;
+#endif
 double    g_st[8];
 int       g_fp_top;
 uint16_t  g_fpu_cw = 0x027F;
@@ -112,8 +116,27 @@ static uint32_t make_tib(uint32_t lo, uint32_t hi) {
     return hle_va(t);
 }
 
-typedef struct { regs_t r; int depth, inited; } mstate;
+typedef struct { regs_t r; int depth, inited;
+#ifdef RECOMP_FIXED_REGS_ACTIVE
+    /* The host's callee-saved x19..x26 as they were at the outermost
+     * mach_enter. Restored at the matching mach_leave so native code outside
+     * the port (libc, SDL, pthread trampolines) keeps its ABI-required
+     * callee-saved values across a call that re-enters the guest. Nested
+     * entries run with guest values live and never touch this snapshot. */
+    uint64_t host[8];
+#endif
+} mstate;
 static __thread mstate g_ms;
+
+#ifdef RECOMP_FIXED_REGS_ACTIVE
+#include "host_regs.h"
+static inline void host_regs_save(mstate *m) {
+    RECOMP_HOST_REGS_SAVE(m->host);
+}
+static inline void host_regs_load(const mstate *m) {
+    RECOMP_HOST_REGS_LOAD(m->host);
+}
+#endif
 
 void mach_enter(void) {
     if (g_ms.depth++ == 0) {
@@ -125,6 +148,9 @@ void mach_enter(void) {
             g_ms.r.fpu_cw = 0x027F;
             g_ms.inited   = 1;
         }
+#ifdef RECOMP_FIXED_REGS_ACTIVE
+        host_regs_save(&g_ms);
+#endif
         mach_take();
         regs_load(&g_ms.r);
         extern void thing_tls_thread_attach(void) __attribute__((weak));
@@ -134,6 +160,9 @@ void mach_enter(void) {
 void mach_leave(void) {
     if (--g_ms.depth == 0) {
         regs_save(&g_ms.r);
+#ifdef RECOMP_FIXED_REGS_ACTIVE
+        host_regs_load(&g_ms);
+#endif
         pthread_mutex_unlock(&g_mach);
     }
 }

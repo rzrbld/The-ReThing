@@ -26,6 +26,13 @@ void ds_jmp_arm(DS_JmpFrame*f){
 }
 unsigned ds_jmp_depth(void){unsigned n=0;for(DS_JmpFrame*f=head;f;f=f->previous)++n;return n;}
 _Noreturn void ds_guest_longjmp(void){
+#if defined(RECOMP_FIXED_REGS_ACTIVE)
+    /* C1 keeps g_eax..g_ebp in x19..x26: the host longjmp below would restore
+     * those callee-saved registers to their setjmp-time values and silently
+     * undo the guest register state written here. No translated site uses
+     * DS_GUEST_SETJMP today; fail loudly rather than corrupt if one appears. */
+    hle_fatal("guest longjmp is unsupported with fixed guest registers (C1 build)");
+#endif
     uint32_t buffer=A32(0),value=A32(1);
     DS_JmpFrame*f=head;while(f&&(!f->active||!f->armed||f->buffer!=buffer))f=f->previous;
     if(!f)hle_fatal("guest longjmp target %#x has no live setjmp caller",buffer);

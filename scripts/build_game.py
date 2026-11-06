@@ -38,6 +38,10 @@ def main():
     p.add_argument('--allow-traps', action='store_true')
     p.add_argument('--local-regs', action='store_true',
                    help='compile generated code with RECOMP_LOCAL_REGS (registers in host locals)')
+    p.add_argument('--fixed-regs', action='store_true',
+                   help='C1: keep the eight guest GPRs in fixed AArch64 '
+                        'callee-saved registers x19..x26 instead of the RECOMP_LOCAL_REGS '
+                        'call-boundary sync (requires --target aarch64, excludes --local-regs)')
     p.add_argument('--translated-opt', default='-O1',
                    help='optimisation level for translated guest code (default -O1)')
     p.add_argument('--icall-trace', action='store_true',
@@ -71,6 +75,13 @@ def main():
                 p.error('--pgo=use requires completed .gcda training data')
             profile_stamp = max(x.stat().st_mtime for x in profiles)
     target = args.target
+    if args.fixed_regs:
+        if target != 'aarch64':
+            p.error('--fixed-regs requires --target aarch64 (the register file is AArch64 x19..x26)')
+        if args.local_regs:
+            p.error('--fixed-regs and --local-regs are mutually exclusive register models')
+        if args.lto:
+            p.error('--fixed-regs has not been validated with --lto')
     cc = 'aarch64-linux-gnu-gcc' if target == 'aarch64' else 'cc'
     ar = ('aarch64-linux-gnu-gcc-ar' if target == 'aarch64' else 'gcc-ar') if args.lto else ('aarch64-linux-gnu-ar' if target == 'aarch64' else 'ar')
     output_root = args.output_root.resolve()
@@ -101,6 +112,18 @@ def main():
         flags += ['-mcpu=cortex-a53']
         link += [f'-L{ROOT}/build/mali-link', f'-L{ROOT}/build/target-libs', '-Wl,--allow-shlib-undefined', '-lSDL2', '-lSDL2_ttf', '-lGLESv2']
     flags += [f'-I{x}' for x in include]
+    # C1 fixed-register model: the guest GPR file lives in AArch64 callee-saved
+    # registers x19..x26. Every translation unit (lifted code and native runtime
+    # alike) reserves those registers with -ffixed so the host compiler never
+    # allocates them for its own code.
+    if args.fixed_regs:
+        flags.append('-DRECOMP_FIXED_REGS')
+        flags += [f'-ffixed-x{reg}' for reg in (19, 20, 21, 22, 23, 24, 25, 26)]
+        # The register declarations reach every TU through recomp_types.h
+        # (directly or via win32hle.h). Do NOT -include a header here: forcing
+        # a system header in before a TU's own `#define _GNU_SOURCE` disables
+        # that TU's feature macros (e.g. process_vm_readv in
+        # exception_diagnostic.c).
     # A fixed guest mapping (runtime/win32hle/guest_mem.c) lets the lifter fold
     # the guest base into every memory access as a constant instead of reloading
     # g_mem_base after stores. It must be visible to the native runtime too, so

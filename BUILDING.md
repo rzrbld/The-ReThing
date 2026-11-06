@@ -125,6 +125,28 @@ python3 scripts/check_portmaster_package.py --archive "$PWD/dist/the_rething.zip
 paths. It does not implement them. The render-worker capability is compiled,
 while the production launcher defaults to SINGLE rendering and buffer cache OFF.
 
+## Fixed guest registers (optional, faster)
+
+`--fixed-regs` builds the same optimized game with the eight x86 guest
+registers held in AArch64 registers x19..x26 for the whole run, instead of
+copying them to and from memory around every translated call. After the base
+build and `generate_optimization_data.py` above:
+
+```bash
+python3 scripts/build_optimized_game.py --target=aarch64 --fixed-regs
+bash scripts/strip_optimized_game.sh --fixed-regs
+python3 scripts/package_portmaster.py \
+  --game build/c1-fixed-combined-aarch64-20261106/thething-c1-fixed.aarch64 \
+  --output "$PWD/dist/the_rething.zip"
+```
+
+It uses a separate output root (`build/game/c1-fixed`), so the default build
+and its object cache are not changed. On an H700 (1.8 GHz) a heavy level-1 view
+with about 410 draws per frame went from 39.7 ms to 35.0 ms per frame
+(about 25 to 28.5 FPS); light views improve by about 1.5 ms of CPU time.
+Guest `longjmp` is not supported in this mode and stops with a clear error;
+no translated code uses it today.
+
 ## Generated optimization data
 
 `generate_optimization_data.py` verifies your executable and reads your translated
