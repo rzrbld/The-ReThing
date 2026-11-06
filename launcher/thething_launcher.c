@@ -26,6 +26,9 @@ extern int thing_native_setup(const char *root, int shadow_only);
 #define PAGE1_BACK PAGE1_ITEMS
 #define PAGE1_COUNT (PAGE1_ITEMS+1)
 #define FONT_W 5
+#define DIVIDER_Y 122
+#define CONTENT_Y 150 /* one text line of space below the divider */
+#define HINT_Y 426
 #define FONT_H 7
 
 typedef struct { const char *label; const char **values; int count, index; const char *env; const char *cfg; } Item;
@@ -139,19 +142,42 @@ static void draw_frame(SDL_Renderer *ren){
     SDL_Rect inner={22,18,W-44,H-36};SDL_RenderDrawRect(ren,&inner);
     SDL_SetRenderDrawColor(ren,line2.r,line2.g,line2.b,line2.a);
     SDL_Rect third={26,22,W-52,H-44};SDL_RenderDrawRect(ren,&third);
-    for(int y=0;y<H;y+=3){SDL_SetRenderDrawColor(ren,0,0,0,26);SDL_RenderDrawLine(ren,20,y,W-20,y);}
-    SDL_Color title={180,230,255,255},sub={90,170,240,255};
-    draw_text_shadow(ren,"THE RETHING",(W-text_width("THE RETHING",5))/2,44,5,title);
-    draw_text_shadow(ren,subtitle,(W-text_width(subtitle,2))/2,104,2,sub);
-    SDL_Color divider={60,120,200,255};SDL_SetRenderDrawColor(ren,divider.r,divider.g,divider.b,divider.a);
-    SDL_RenderDrawLine(ren,60,126,W-60,126);
+    SDL_SetRenderDrawBlendMode(ren,SDL_BLENDMODE_BLEND);
+    for(int y=0;y<H;y+=3){SDL_SetRenderDrawColor(ren,0,0,0,70);SDL_RenderDrawLine(ren,27,y,W-27,y);}
+    SDL_Color title={180,230,255,255},sub={110,190,250,255};
+    draw_text_shadow(ren,"THE RETHING",(W-text_width("THE RETHING",5))/2,40,5,title);
+    draw_text_shadow(ren,subtitle,(W-text_width(subtitle,2))/2,98,2,sub);
+    /* Divider fading out towards both ends, with a soft glow line under it. */
+    for(int x=50;x<W-50;x++){float t=(x-W/2)/(float)(W/2-50),d=1.0f-(t<0?-t:t);
+        SDL_SetRenderDrawColor(ren,90,170,255,(Uint8)(220*d));SDL_RenderDrawPoint(ren,x,DIVIDER_Y);
+        SDL_SetRenderDrawColor(ren,90,170,255,(Uint8)(60*d));SDL_RenderDrawPoint(ren,x,DIVIDER_Y+1);}
 }
-static void draw_row(SDL_Renderer *ren,const char *label,const char *value,int y,int selected,SDL_Color normal,SDL_Color hot){
-    SDL_Color c=selected?hot:normal;
-    if(selected){draw_text_shadow(ren,">",56,y,3,hot);
-        SDL_SetRenderDrawColor(ren,120,210,255,90);SDL_RenderDrawLine(ren,80,y+24,W-60,y+24);}
-    draw_text_shadow(ren,label,86,y,3,c);
-    int vw=text_width(value,3);draw_text_shadow(ren,value,W-70-vw,y,3,c);
+/* One menu row. Text is 21 px tall at scale 3; the highlight bar extends
+ * 5 px above and below it. Changeable values get < > arrows when selected. */
+static void draw_row_scaled(SDL_Renderer *ren,const char *label,const char *value,int y,int selected,int arrows,SDL_Color normal,SDL_Color hot,int scale){
+    SDL_Color c=selected?hot:normal;int h=7*scale+10;
+    if(selected){
+        SDL_Rect bar={44,y-5,W-88,h};SDL_SetRenderDrawColor(ren,70,150,255,48);SDL_RenderFillRect(ren,&bar);
+        SDL_SetRenderDrawColor(ren,120,200,255,110);SDL_RenderDrawRect(ren,&bar);
+        SDL_Rect accent={44,y-5,5,h};SDL_SetRenderDrawColor(ren,150,225,255,255);SDL_RenderFillRect(ren,&accent);
+    }
+    draw_text_shadow(ren,label,64,y,scale,c);
+    if(!*value)return;
+    int vw=text_width(value,scale),right=W-62;
+    if(selected&&arrows){
+        draw_text_shadow(ren,">",right-text_width(">",scale)+scale,y,scale,hot);right-=text_width("> ",scale);
+        draw_text_shadow(ren,value,right-vw,y,scale,c);
+        draw_text_shadow(ren,"<",right-vw-text_width("< ",scale),y,scale,hot);
+    }else draw_text_shadow(ren,value,right-vw,y,scale,c);
+}
+static void draw_row(SDL_Renderer *ren,const char *label,const char *value,int y,int selected,int arrows,SDL_Color normal,SDL_Color hot){
+    draw_row_scaled(ren,label,value,y,selected,arrows,normal,hot,3);
+}
+/* Bottom hint, behind a thin separator; scale 2 when it fits. */
+static void draw_hint(SDL_Renderer *ren,const char *text){
+    SDL_SetRenderDrawColor(ren,60,120,200,120);SDL_RenderDrawLine(ren,60,HINT_Y-12,W-60,HINT_Y-12);
+    SDL_Color hint={100,160,230,255};int scale=text_width(text,2)<=W-80?2:1;
+    draw_text(ren,text,(W-text_width(text,scale))/2,HINT_Y+(scale==1?4:0),scale,hint);
 }
 static void load_config(void){
     FILE *f=fopen(config_path,"r");if(!f)return;char line[128];
@@ -368,22 +394,24 @@ int main(int argc,char **argv){
             for(int i=0;i<=OPTIONS_ITEM;i++){
                 int it=main_rows[i];
                 const char *value=i<KEY_COUNT?items[it].values[items[it].index]:"OPEN";
-                draw_row(ren,items[it].label,value,130+i*30,selection==i,normal,hot);
+                draw_row(ren,items[it].label,value,CONTENT_Y+i*38,selection==i,i<KEY_COUNT,normal,hot);
             }
-            draw_row(ren,"SAVE & LAUNCH","",340,selection==PAGE0_SAVE,hot,hot);
-            draw_row(ren,"CANCEL","",372,selection==PAGE0_CANCEL,normal,hot);
+            int actions=CONTENT_Y+(OPTIONS_ITEM+1)*38+26;
+            SDL_SetRenderDrawColor(ren,60,120,200,90);SDL_RenderDrawLine(ren,64,actions-18,W-64,actions-18);
+            draw_row(ren,"SAVE & LAUNCH","",actions,selection==PAGE0_SAVE,0,hot,hot);
+            draw_row(ren,"CANCEL","",actions+38,selection==PAGE0_CANCEL,0,normal,hot);
         }else{
             for(int i=0;i<PAGE1_ITEMS;i++){
                 int it=render_rows[i];const char *reason=blocked_reason(it);
                 SDL_Color disabled={85,95,110,255};
-                draw_row(ren,items[it].label,reason?"BLOCKED":items[it].values[items[it].index],135+i*25,selection==i,reason?disabled:normal,reason?disabled:hot);
+                draw_row_scaled(ren,items[it].label,reason?"BLOCKED":items[it].values[items[it].index],CONTENT_Y+i*25,selection==i,!reason,reason?disabled:normal,reason?disabled:hot,2);
             }
-            draw_row(ren,"BACK","",135+PAGE1_ITEMS*25,selection==PAGE1_BACK,normal,hot);
+            int back=CONTENT_Y+PAGE1_ITEMS*25+12;
+            SDL_SetRenderDrawColor(ren,60,120,200,90);SDL_RenderDrawLine(ren,64,back-11,W-64,back-11);
+            draw_row_scaled(ren,"BACK","",back,selection==PAGE1_BACK,0,normal,hot,2);
         }
-        SDL_Color hint={60,110,180,255};
         const char *reason=blocked_reason(selected_item());
-        const char *hint_text=reason?reason:page==0?"UP/DOWN MOVE  LEFT/RIGHT CHANGE  A SELECT  B CANCEL":"UP/DOWN MOVE  LEFT/RIGHT CHANGE  A SELECT  B BACK";
-        draw_text(ren,hint_text,(W-text_width(hint_text,1))/2,H-52,1,hint);
+        draw_hint(ren,reason?reason:page==0?"< > CHANGE   A SELECT   B CANCEL":"< > CHANGE   A SELECT   B BACK");
         if(shot_path&&!shot){int ow=W,oh=H;SDL_GetRendererOutputSize(ren,&ow,&oh);SDL_Surface *s=SDL_CreateRGBSurfaceWithFormat(0,ow,oh,32,SDL_PIXELFORMAT_RGBA32);if(s){SDL_RenderReadPixels(ren,NULL,SDL_PIXELFORMAT_RGBA32,s->pixels,s->pitch);SDL_SaveBMP(s,shot_path);SDL_FreeSurface(s);}shot=1;}
         SDL_RenderPresent(ren);if(shot_path&&shot)break;SDL_Delay(16);
     }
