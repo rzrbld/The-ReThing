@@ -6,29 +6,35 @@ The prebuilt executable is provided for review. Supply your own game files.
 
 ## Install
 
-Extract **the_rething.zip into your device's existing ports directory**.
-The archive contains `The ReThing.sh`, `the_rething/`, `port.json`,
-`README.md`, `gameinfo.xml` and `screenshot.png`. Metadata copies also remain
-inside the payload for installed-port discovery. There is only one game shortcut.
-Do not extract this package at the SD-card root. If upgrading the older package, first rename `ports/the-thing` to
-`ports/the_rething`, then extract this ZIP into `ports` and replace packaged
-files. This preserves bin/, data/, config/ and userdata/. If both folders
-already exist, back them up and move the old game data, config and userdata
-into the new folder before launching; do not overwrite newer saves. No saves or user settings are included in the ZIP.
+**Fresh install**
 
-Delete the obsolete `The Thing Measure.sh` shortcut. The main shortcut remains
-`The ReThing.sh`.
+1. Extract `the_rething.zip` into the **ports** folder on your SD card, so you
+   have `ports/The ReThing.sh` and `ports/the_rething/`. Do not extract it at
+   the SD-card root or into an extra sub-folder.
+2. Copy your game ISO into `ports/the_rething/source/` and name it exactly
+   `the_thing.iso`. Supported SHA-256:
+   `1f3ac2916d8185f0e76b811fe24bc15af9412bf4da18f4bf4579ee483683fe61`.
+   Allow 1.5 GiB free after copying it (2 GiB recommended).
+3. Start **The ReThing** from the Ports menu. On muOS, if it does not appear,
+   also copy `The ReThing.sh` into `Roms/PORTS` (keep `the_rething` in `ports`).
+4. The first launch unpacks the ISO, applies the 1.1 and 1.2 updates and checks
+   the result. This takes a while; keep the device charged. **A** retries an
+   error, **B** cancels. No network or Python is needed.
+5. The settings menu opens with the recommended defaults; choose
+   **SAVE & LAUNCH**.
 
-For muOS, if its Ports menu uses `Roms/PORTS`, copy `The ReThing.sh`
-there; keep the `the_rething` payload in the card's `ports` folder.
-The shortcuts support both locations. Do not copy the payload into Roms/PORTS.
+Once installed, the game runs without the ISO; you may delete it. The first
+time you visit an area the game may pause briefly while it prepares graphics;
+that happens only once.
 
-Launch **The ReThing**. Existing supported patched files are verified and reused
-without an ISO. For a fresh installation, supply `the_rething/source/the_thing.iso`.
-Supported SHA256: `1f3ac2916d8185f0e76b811fe24bc15af9412bf4da18f4bf4579ee483683fe61`.
-The native launcher extracts, applies 1.1 then 1.2 and verifies the supported
-executable. Allow 1.5 GiB free after copying the ISO (2 GiB recommended).
-No Python or network connection is required. B cancels setup; A retries errors.
+**Upgrading**
+
+Extract the new ZIP into the same **ports** folder and replace existing files.
+Game files (`bin/`, `data/`), settings (`config/`) and saves (`userdata/`) are
+kept; the ZIP contains none of them. From the old `ports/the-thing` folder,
+rename it to `ports/the_rething` first; if both folders exist, back up and move
+`bin/`, `data/`, `config/` and `userdata/` into `the_rething` before launching.
+The obsolete `The Thing Measure.sh` shortcut can be deleted.
 
 ## Requirements and settings
 
@@ -48,9 +54,9 @@ your preferences. See RENDER_OPTIONS.md for each switch. SINGLE blocks ASYNC PRE
 and DEPTH INVALIDATE. 512x384 renders below screen resolution and scales to fit.
 
 H700 gameplay has been tested, but demanding scenes still fall below 30 FPS.
-The guarded material-state optimization saved approximately 0.55-1.11 ms/frame
-in two stationary save-slot-4 comparisons; this is not a whole-game guarantee.
-Optional performance probes are disabled by default. Normal error logs stay in the port.
+Compiled shaders are kept in `userdata/shader-cache` (safe to delete; rebuilt
+as you play). Optional performance probes are disabled by default. Normal
+error logs stay in the port.
 
 ## Controls
 
