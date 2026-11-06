@@ -9,36 +9,72 @@ can fall below 30 FPS. This is not a port of the 2024 remaster.
 
 ## Quick start
 
-1. Download `the_rething.zip` from [Releases](https://github.com/rzrbld/The-ReThing/releases).
-2. Extract it into your device's **ports** directory.
-3. Supply your own supported game ISO as `the_rething/source/the_thing.iso`.
-4. Launch **The ReThing**. The native launcher installs and verifies the game,
-   then opens its settings menu. No Python is needed on the handheld.
+**You need:** an H700 handheld with 64-bit firmware and Mali graphics drivers
+(tested on muOS), your own copy of the supported game ISO (see below), and
+about 2 GiB free on the SD card.
 
-Existing supported `bin/` and `data/` files are reused without an ISO.
-Upgrading an older package? Rename `ports/the-thing` to `ports/the_rething`
-before extracting, and preserve `config/` and `userdata/` for settings and saves.
-If both folders already exist, back up and merge your user files carefully.
+### Fresh install
 
-On muOS, copy `The ReThing.sh` to `Roms/PORTS` if that is where your menu looks
-for shortcuts. Keep the game folder in `ports/the_rething`.
+1. Open [Releases](https://github.com/rzrbld/The-ReThing/releases) and download
+   `the_rething.zip` from the newest release at the top of the list (releases
+   are marked *Pre-release*).
+2. Extract the ZIP into the **ports** folder on your SD card. You should end up
+   with:
 
-Recommended settings: **640×480, SINGLE, buffer cache OFF, shadows SIMPLE**.
-Open **RENDER OPTIONS** in the launcher for graphics controls. Options that require
-a different renderer are blocked; saved preferences are preserved. See
-[render options](docs/RENDER_OPTIONS.md).
-Requires AArch64 firmware, glibc 2.36+, Bash, SDL2, SDL2_ttf and `libmali.so.0`.
-Other GPU drivers and 32-bit firmware are not supported by this binary.
+   ```text
+   ports/
+   ├── The ReThing.sh
+   └── the_rething/
+       ├── source/
+       └── ...
+   ```
 
-Only this ISO revision is currently supported (SHA-256):
+   Do not extract it at the SD-card root or into an extra sub-folder.
+3. Copy your game ISO into `ports/the_rething/source/` and name it exactly
+   `the_thing.iso`.
+4. Start **The ReThing** from the Ports menu. On muOS, if it does not appear,
+   also copy `The ReThing.sh` into `Roms/PORTS` (keep the `the_rething` folder
+   in `ports`).
+5. The first launch unpacks the ISO, applies the 1.1 and 1.2 updates and checks
+   the result. This takes a while; keep the device charged. If an error appears,
+   press **A** to retry or **B** to cancel. No network or Python is needed.
+6. The settings menu opens. The defaults are the recommended ones
+   (**640×480, SINGLE, buffer cache OFF, shadows SIMPLE**); start the game.
+
+Once installed, the game runs without the ISO, so you may delete it to free
+space. The first time you visit an area the game may pause briefly while it
+prepares graphics; that happens only once.
+
+### Upgrading
+
+Download the new `the_rething.zip` and extract it into the same **ports**
+folder, replacing existing files. Your game files (`bin/`, `data/`), settings
+(`config/`) and saves (`userdata/`) are kept; no ISO is needed.
+
+Coming from the old `ports/the-thing` folder? Rename it to
+`ports/the_rething` first. If both folders exist, back up and move your
+`bin/`, `data/`, `config/` and `userdata/` into `the_rething` before launching.
+
+### Supported ISO
+
+Only this ISO revision works (SHA-256):
 
 ```text
 1f3ac2916d8185f0e76b811fe24bc15af9412bf4da18f4bf4579ee483683fe61
 ```
 
-It contains the original game and the 1.1/1.2 update inputs expected by the
-installer. Other revisions are rejected. Allow at least 1.5 GiB free after
-copying the ISO; 2 GiB is recommended.
+It contains the original game and the 1.1/1.2 update inputs the installer
+needs; other revisions are rejected. To check yours on a PC, run
+`sha256sum the_thing.iso` (Linux/macOS: `shasum -a 256 the_thing.iso`) or
+`certutil -hashfile the_thing.iso SHA256` (Windows).
+
+### Settings and requirements
+
+Open **RENDER OPTIONS** in the launcher for graphics controls. Options that
+require a different renderer are blocked; saved preferences are preserved.
+See [render options](docs/RENDER_OPTIONS.md).
+Requires AArch64 firmware, glibc 2.36+, Bash, SDL2, SDL2_ttf and `libmali.so.0`.
+Other GPU drivers and 32-bit firmware are not supported by this binary.
 
 ## Controls and saves
 
