@@ -8,9 +8,11 @@ The prebuilt executable is provided for review. Supply your own game files.
 
 **Fresh install**
 
-1. Extract `the_rething.zip` into the **ports** folder on your SD card, so you
-   have `ports/The ReThing.sh` and `ports/the_rething/`. Do not extract it at
-   the SD-card root or into an extra sub-folder.
+1. Copy `The ReThing.sh` and the `the_rething` folder from the ZIP into the
+   **ports** folder on your SD card, so you have `ports/The ReThing.sh` and
+   `ports/the_rething/`. The other files in the ZIP (`port.json`, `README.md`,
+   `gameinfo.xml`, `screenshot.png`) are PortMaster metadata; leave them out of
+   `ports`. Do not use the SD-card root or an extra sub-folder.
 2. Copy your game ISO into `ports/the_rething/source/` and name it exactly
    `the_thing.iso`. Supported SHA-256:
    `1f3ac2916d8185f0e76b811fe24bc15af9412bf4da18f4bf4579ee483683fe61`.
@@ -29,12 +31,16 @@ that happens only once.
 
 **Upgrading**
 
-Extract the new ZIP into the same **ports** folder and replace existing files.
+Copy `The ReThing.sh` and `the_rething` from the new ZIP into the same **ports**
+folder and replace existing files.
 Game files (`bin/`, `data/`), settings (`config/`) and saves (`userdata/`) are
 kept; the ZIP contains none of them. From the old `ports/the-thing` folder,
 rename it to `ports/the_rething` first; if both folders exist, back up and move
 `bin/`, `data/`, `config/` and `userdata/` into `the_rething` before launching.
-The obsolete `The Thing Measure.sh` shortcut can be deleted.
+The obsolete `The Thing Measure.sh` shortcut can be deleted. If an earlier ZIP
+was extracted straight into `ports`, also delete `ports/port.json`,
+`ports/README.md`, `ports/gameinfo.xml` and `ports/screenshot.png` when they
+belong to The ReThing.
 
 ## Requirements and settings
 

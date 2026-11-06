@@ -35,6 +35,8 @@ source "$gamedir/the-thing-env.sh" || exit 1
 export THING_EARLY_QUEUE_BOUNDS=1 THING_CPU_CLIP=0 DS_CPU_CLIP=0
 export THING_NATIVE_STREAM_PROBE="$gamedir/libthing-audio.aarch64.so"
 export THING_NATIVE_VORBIS_PROBE="$THING_NATIVE_STREAM_PROBE"
+# PortMaster convention: port libraries live in libs.<arch>.
+export LD_LIBRARY_PATH="$gamedir/libs.${DEVICE_ARCH:-aarch64}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export THING_SKIN_SIMD=0 THING_MATRIX_SIMD=0 THING_INDEX_RANGE=0
 export THING_DRAW_BATCH=0 DS_DRAW_BATCH=0 THING_DECAL_BATCH=0 DS_DECAL_BATCH=0
 cd "$gamedir" || exit 1

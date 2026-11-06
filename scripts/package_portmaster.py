@@ -37,7 +37,10 @@ add('the-thing/THIRD_PARTY.md',R/'THIRD_PARTY.md')
 for path in sorted((R/'third_party/pcrecomp/LICENSES').glob('*')):
  if path.is_file():add('the-thing/licenses/'+path.name,path)
 for path in sorted((R/'build/installer-tools/bundle').rglob('*')):
- if path.is_file():add('the-thing/tools/'+str(path.relative_to(R/'build/installer-tools/bundle')),path)
+ if path.is_file():
+  rel=str(path.relative_to(R/'build/installer-tools/bundle'));add('the-thing/tools/'+rel,path)
+  # PortMaster keeps every license under the port's licenses/ folder.
+  if rel.startswith('licenses/'):add('the-thing/licenses/installer-tools/'+rel[len('licenses/'):],path)
 for name in ('thething.aarch64','libthing-audio.aarch64.so'):
  blob=files['the-thing/'+name]
  assert blob[:6]==b'\x7fELF\x02\x01' and int.from_bytes(blob[18:20],'little')==183,name
@@ -53,9 +56,10 @@ if [[ ${DEVICE_ARCH:-$(uname -m)} != aarch64 ]]; then
     echo "The ReThing requires AArch64 firmware." >&2
     exit 1
 fi
-chmod +x "$gamedir/thething-launcher" "$gamedir/thething.aarch64" || exit 1
+export CONFDIR="$gamedir/config"
+${ESUDO:-} chmod +x "$gamedir/thething-launcher" "$gamedir/thething.aarch64" || exit 1
 if [[ -f "$gamedir/tools/lib/ld-linux-aarch64.so.1" ]]; then
-    chmod +x "$gamedir/tools/lib/ld-linux-aarch64.so.1" || exit 1
+    ${ESUDO:-} chmod +x "$gamedir/tools/lib/ld-linux-aarch64.so.1" || exit 1
 fi''')
 files['The ReThing.sh']=entry.encode()
 for n in ('port.json','README.md','gameinfo.xml'):files['the-thing/'+n]=(R/'packaging/portmaster'/n).read_bytes()

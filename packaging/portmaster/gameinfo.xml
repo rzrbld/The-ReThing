@@ -4,7 +4,9 @@
     <path>./The ReThing.sh</path>
     <name>The ReThing</name>
     <desc>Experimental ARM64 port of The Thing. Requires user-owned original game files. H700 with proprietary Mali GLES; performance remains under development.</desc>
+    <releasedate>20020820T000000</releasedate>
     <developer>Computer Artworks</developer>
+    <publisher>Black Label Games</publisher>
     <genre>Action / Adventure</genre>
     <players>1</players>
     <image>./the_rething/screenshot.png</image>

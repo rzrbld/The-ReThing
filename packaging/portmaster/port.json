@@ -13,7 +13,7 @@
     ],
     "desc": "Experimental ARM64 port of The Thing (2002). This build targets H700 with proprietary Mali GLES. User-owned game files required; stable 30 FPS is not achieved.",
     "desc_md": null,
-    "inst": "Extract into ports. For an older install, rename ports/the-thing to ports/the_rething before extracting; preserve bin, data, config and userdata. Launch The ReThing to verify existing files, or put the supported ISO in the_rething/source/the_thing.iso. No Python required. Requires Bash, glibc 2.36+, SDL2, SDL2_ttf and libmali.so.0. See README.md for the supported ISO checksum.",
+    "inst": "Copy The ReThing.sh and the the_rething folder into ports (not the other ZIP files). For a new install put the supported ISO in the_rething/source/the_thing.iso and launch The ReThing; existing bin, data, config and userdata are kept on upgrade. No Python required. Requires Bash, glibc 2.36+, SDL2, SDL2_ttf and libmali.so.0. See README.md for the supported ISO checksum.",
     "inst_md": null,
     "genres": [
       "action",

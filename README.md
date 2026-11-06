@@ -18,8 +18,11 @@ about 2 GiB free on the SD card.
 1. Open [Releases](https://github.com/rzrbld/The-ReThing/releases) and download
    `the_rething.zip` from the newest release at the top of the list (releases
    are marked *Pre-release*).
-2. Extract the ZIP into the **ports** folder on your SD card. You should end up
-   with:
+2. Extract the ZIP on your PC or into a temporary folder, then copy
+   **`The ReThing.sh`** and the **`the_rething`** folder into the **ports**
+   folder on your SD card. Leave the other files from the ZIP (`port.json`,
+   `README.md`, `gameinfo.xml`, `screenshot.png`) out of `ports`; they are
+   PortMaster metadata. You should end up with:
 
    ```text
    ports/
@@ -29,7 +32,7 @@ about 2 GiB free on the SD card.
        └── ...
    ```
 
-   Do not extract it at the SD-card root or into an extra sub-folder.
+   Do not put them at the SD-card root or into an extra sub-folder.
 3. Copy your game ISO into `ports/the_rething/source/` and name it exactly
    `the_thing.iso`.
 4. Start **The ReThing** from the Ports menu. On muOS, if it does not appear,
@@ -47,9 +50,14 @@ prepares graphics; that happens only once.
 
 ### Upgrading
 
-Download the new `the_rething.zip` and extract it into the same **ports**
-folder, replacing existing files. Your game files (`bin/`, `data/`), settings
+Download the new `the_rething.zip` and copy its `The ReThing.sh` and
+`the_rething` folder into the same **ports** folder, replacing existing files. Your game files (`bin/`, `data/`), settings
 (`config/`) and saves (`userdata/`) are kept; no ISO is needed.
+
+Extracted an earlier package straight into `ports`? It also left four PortMaster
+metadata files there: `ports/port.json`, `ports/README.md`, `ports/gameinfo.xml`
+and `ports/screenshot.png`. Delete them if they belong to The ReThing (its
+`gameinfo.xml` names *The ReThing*); they can hide other ports' metadata.
 
 Coming from the old `ports/the-thing` folder? Rename it to
 `ports/the_rething` first. If both folders exist, back up and move your
