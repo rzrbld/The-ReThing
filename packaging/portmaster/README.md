@@ -1,6 +1,6 @@
 # The ReThing
 
-An experimental ARM64 port of The Thing (2002). Thanks to Computer Artworks
+An ARM64 port of The Thing (2002). Thanks to Computer Artworks
 for the original game, pcrecomp and the Desert Storm compatibility-layer work.
 The prebuilt executable is provided for review. Supply your own game files.
 

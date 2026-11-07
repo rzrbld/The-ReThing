@@ -16,8 +16,7 @@ about 2 GiB free on the SD card.
 ### Fresh install
 
 1. Open [Releases](https://github.com/rzrbld/The-ReThing/releases) and download
-   `the_rething.zip` from the newest release at the top of the list (releases
-   are marked *Pre-release*).
+   `the_rething.zip` from the release marked *Latest*.
 2. Extract the ZIP on your PC or into a temporary folder, then copy
    **`The ReThing.sh`** and the **`the_rething`** folder into the **ports**
    folder on your SD card. Leave the other files from the ZIP (`port.json`,
