@@ -2,13 +2,15 @@
 # Shared environment for the Ports launchers (controller DB, audio/video,
 # renderer defaults and persisted launcher settings). Callers must export
 # THING_ROOT and GAMEDIR first.
-if [[ -z ${controlfolder:-} ]]; then
+# The launch script has already sourced PortMaster in its own shell
+# (thing_portmaster_ready); the game stage, a child process, loads it here.
+if [[ ${thing_portmaster_ready:-0} != 1 && -z ${controlfolder:-} ]]; then
     for candidate in /PortMaster /opt/system/Tools/PortMaster /opt/tools/PortMaster \
         "${XDG_DATA_HOME:-$HOME/.local/share}/PortMaster" /mnt/mmc/MUOS/PortMaster /roms/ports/PortMaster; do
         if [[ -f "$candidate/control.txt" ]]; then controlfolder=$candidate; break; fi
     done
 fi
-if [[ -f ${controlfolder:-}/control.txt ]]; then
+if [[ ${thing_portmaster_ready:-0} != 1 && -f ${controlfolder:-}/control.txt ]]; then
     export controlfolder
     source "$controlfolder/control.txt"
     [[ ! -f "$controlfolder/mod_${CFW_NAME}.txt" ]] || source "$controlfolder/mod_${CFW_NAME}.txt"
@@ -23,8 +25,8 @@ if [[ -f /usr/lib/gamecontrollerdb.txt ]]; then
         [[ -z "$mapping" ]] || export SDL_GAMECONTROLLERCONFIG="$mapping"
     fi
 fi
-if [[ -S /run/pipewire-0 ]]; then export XDG_RUNTIME_DIR=/run; fi
-export SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-alsa}
+# Audio: SDL picks the firmware's default output (PipeWire, PulseAudio or ALSA),
+# so the system volume and volume keys apply. Set SDL_AUDIODRIVER to override.
 export THING_PAD_CONFIG=${THING_PAD_CONFIG:-$gamedir/controller-buttons.cfg}
 # Overlay off by default: it costs several FPS on the H700 and is a diagnostic
 # only. "The Thing Overlay.sh" turns it back on.

@@ -40,7 +40,8 @@ export LD_LIBRARY_PATH="$gamedir/libs.${DEVICE_ARCH:-aarch64}${LD_LIBRARY_PATH:+
 export THING_SKIN_SIMD=0 THING_MATRIX_SIMD=0 THING_INDEX_RANGE=0
 export THING_DRAW_BATCH=0 DS_DRAW_BATCH=0 THING_DECAL_BATCH=0 DS_DECAL_BATCH=0
 cd "$gamedir" || exit 1
-exec > >(tee "$gamedir/log.txt") 2>&1
+# Started from the launch script, output already goes to log.txt.
+[[ ${THING_LOG_ACTIVE:-0} == 1 ]] || exec > >(tee "$gamedir/log.txt") 2>&1
 printf '[package] executable=%s\n' "$gamedir/thething.aarch64"
 if command -v sha256sum >/dev/null 2>&1; then
     printf '[package] sha256 '
@@ -64,6 +65,17 @@ if [[ -f "$gamedir/cpu-session.sh" ]]; then
     source "$gamedir/cpu-session.sh"
     thing_cpu_begin
 fi
+# gptokeyb from PortMaster: Start+Select quits the game (no mapping file: the
+# game reads the controller itself through SDL's game-controller API).
+thing_gptk_pid=
+if [[ -n ${GPTOKEYB:-} ]]; then
+    $GPTOKEYB "thething.aarch64" &
+    thing_gptk_pid=$!
+fi
 if declare -F pm_platform_helper >/dev/null; then pm_platform_helper "$gamedir/thething.aarch64"; fi
 "$gamedir/thething.aarch64" "$@"
-exit $?
+rc=$?
+printf '[the-thing] game exited rc=%s\n' "$rc"
+# the settings launcher may start the game again: one gptokeyb per run
+[[ -z $thing_gptk_pid ]] || kill "$thing_gptk_pid" 2>/dev/null
+exit $rc

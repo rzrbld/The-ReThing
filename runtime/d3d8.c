@@ -101,7 +101,16 @@ static void destroy_scale_target(void){
 static int create_scale_target(int gw,int gh){
     const char *vw=setting("DS_RENDER_WIDTH"),*vh=setting("DS_RENDER_HEIGHT");
     int w=vw?atoi(vw):0,h=vh?atoi(vh):0;
-    if(w<160||h<120||w>=gw||h>=gh){d8_renderer_set_output_scale(&renderer,1.0f);return 0;}
+    if(w<160||h<120||w>=gw||h>=gh){
+        /* No lower render size: the game still goes through the target when
+         * the screen is not the game's size, so it is scaled to fit (with
+         * bars) instead of drawn into a corner of a larger panel. */
+        /* DS_SCREEN_FIT: 0 off; force also at equal size (a device test of the path) */
+        const char *fit=setting("DS_SCREEN_FIT");int force=fit&&!strcmp(fit,"force");
+        GLint dw=0,dh=0;SDL_GL_GetDrawableSize(window,&dw,&dh);
+        if((fit&&!strcmp(fit,"0"))||dw<=0||dh<=0||(dw==gw&&dh==gh&&!force)){d8_renderer_set_output_scale(&renderer,1.0f);return 0;}
+        w=gw;h=gh;
+    }
     if(!blit_fn){blit_fn=(D8BlitFn)SDL_GL_GetProcAddress("glBlitFramebuffer");if(!blit_fn){fprintf(stderr,"[d3d8] glBlitFramebuffer unavailable; render scale disabled\n");return 0;}}
     glGenTextures(1,&scale_tex);glBindTexture(GL_TEXTURE_2D,scale_tex);
     glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,NULL);
@@ -124,8 +133,19 @@ static void scale_blit_now(void){
     GLint dw=0,dh=0;SDL_GL_GetDrawableSize(window,&dw,&dh);
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_READ_FRAMEBUFFER,scale_fbo);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,0);
-    blit_fn(0,0,scale_w,scale_h,0,0,dw,dh,GL_COLOR_BUFFER_BIT,GL_LINEAR);
-    glBindFramebuffer(GL_FRAMEBUFFER,0);glViewport(0,0,dw,dh);scale_bound=0;
+    /* Fit the game's aspect inside the screen, centred, black bars around
+     * (any panel: 480x320, 640x480, 720x720, 1280x720, ...). The renderer's
+     * cached colour mask is reset after the present (invalidate_raster). */
+    GLint x0=0,y0=0,x1=dw,y1=dh;
+    if((long long)dw*scale_h>(long long)dh*scale_w){int w=(int)((long long)dh*scale_w/scale_h);x0=(dw-w)/2;x1=x0+w;}
+    else if((long long)dw*scale_h<(long long)dh*scale_w){int h=(int)((long long)dw*scale_h/scale_w);y0=(dh-h)/2;y1=y0+h;}
+    if(x0||y0){glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT);}
+    blit_fn(0,0,scale_w,scale_h,x0,y0,x1,y1,GL_COLOR_BUFFER_BIT,GL_LINEAR);
+    /* Back to the game's target at its own size: 2D paths that do not go
+     * through the renderer's viewport cache drew into it with the screen's
+     * viewport (only a corner of the frame survived). The overlay, captures
+     * and movies bind the screen themselves. */
+    glBindFramebuffer(GL_FRAMEBUFFER,scale_fbo);glViewport(0,0,scale_w,scale_h);scale_bound=scale_fbo;
 }
 static void scale_blit_job(void *unused){(void)unused;scale_blit_now();}
 /* Render routing: game frames must land in the scaled FBO whenever the guest

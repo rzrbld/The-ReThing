@@ -12,7 +12,7 @@ args=parser.parse_args()
 files={}
 def add(name,path): files[name]=Path(path).read_bytes()
 add('The ReThing.sh',R/'packaging/The ReThing.sh')
-for name in ('the-thing-env.sh','cpu-session.sh','muos-session.sh'):
+for name in ('the-thing-env.sh','cpu-session.sh'):  # muos-session.sh: SSH test harness only, not shipped
  add('the-thing/'+name,R/'packaging'/name)
 add('the-thing/run-game.sh',R/'packaging/run-game.sh')
 add('the-thing/thething.aarch64',args.game)

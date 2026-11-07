@@ -32,8 +32,11 @@ exit 0
   result=subprocess.run(['bash',str(location/script)],env=env,cwd='/',capture_output=True,text=True)
   assert result.returncode==expected,(mode,result.returncode,result.stderr)
   lines=log.read_text().splitlines();assert lines.count('finish')==1,(mode,lines)
-  assert lines.count('suspend')==1 and lines.count('resume')==1,(mode,lines)
+  # The menu path leaves frontend handover to PortMaster; only a direct
+  # run-game.sh (SSH test harness) suspends the muOS frontend itself.
+  want=1 if mode=='direct' else 0
+  assert lines.count('suspend')==want and lines.count('resume')==want,(mode,lines)
   if mode!='direct':assert 'helper:thething-launcher' in lines
-  if mode!='cancel':assert 'helper:thething.aarch64' in lines and lines.count('cpu_restore')==1
+  if mode!='cancel':assert 'helper:thething.aarch64' in lines and lines.count('cpu_restore')==1,(mode,lines)
   assert not (shortcuts/'the-thing').exists()
   print('PASS',location.name,mode,': correct paths with spaces, lifecycle, one cleanup, exit status',expected)
